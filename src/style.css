@@ -1,5 +1,7 @@
 /* ═══════════════════════════════════════════════════════
    Univerzine 2.0 — Global Styles
+   Optimised for low-end devices with GPU compositing hints,
+   safe area support, and reduced paint triggers.
    ═══════════════════════════════════════════════════════ */
 
 * {
@@ -17,6 +19,8 @@ html, body {
     color: #fff;
     -webkit-tap-highlight-color: transparent;
     touch-action: none;
+    /* Prevent pull-to-refresh and overscroll on mobile */
+    overscroll-behavior: none;
 }
 
 /* ─── WebGL Canvas ─────────────────────────────── */
@@ -27,6 +31,10 @@ html, body {
     width: 100%;
     height: 100%;
     display: block;
+    /* GPU compositing hint — keeps canvas on its own layer */
+    will-change: contents;
+    /* iOS safe area support */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
 /* ─── Start Overlay ────────────────────────────── */
@@ -39,6 +47,7 @@ html, body {
     justify-content: center;
     z-index: 100;
     transition: opacity 2s ease-out, visibility 2s;
+    will-change: opacity;
 }
 
 #overlay.hidden {

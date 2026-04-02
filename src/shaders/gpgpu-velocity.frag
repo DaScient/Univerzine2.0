@@ -62,18 +62,19 @@ void main() {
 
     // ─── FILAMENT FORMATION (anisotropic structure) ─
     vec3 filCoord = position * 0.008 + uTime * 0.003;
-    float filament = fbm(filCoord, 4);
+    float filament = fbm(filCoord, 3);   // 3 octaves — saves GPU ALU
     vec3 filForce = vec3(
         snoise(filCoord + vec3(200.0)),
         snoise(filCoord + vec3(300.0)),
         snoise(filCoord + vec3(400.0))
     ) * filament * 0.4;
 
-    // ─── SENSOR: GYROSCOPE ──────────────────────────
-    vec3 gyroForce = uGyro * 3.0;
+    // ─── SENSOR: GYROSCOPE (full 3-axis) ────────────
+    vec3 gyroForce = uGyro * 5.0;
+    gyroForce += vec3(-uGyro.y, uGyro.x, 0.0) * 1.5;
 
-    // ─── SENSOR: AUDIO ──────────────────────────────
-    vec3 audioForce = dir * uAudioLevel * 8.0
+    // ─── SENSOR: AUDIO (procedural, non-echo) ──────
+    vec3 audioForce = dir * uAudioLevel * 10.0
                     * sin(age * uAudioBass * 6.28318);
 
     // ─── MOUSE / TOUCH INTERACTION ──────────────────

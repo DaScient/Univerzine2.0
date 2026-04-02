@@ -2,6 +2,7 @@
 // Univerzine 2.0 — Quantum Big Bang Simulation
 // Main entry: Three.js scene, GPGPU particle pipeline,
 // bloom post-processing, sensor integration, render loop.
+// Optimised for low-end devices with adaptive quality.
 // ═══════════════════════════════════════════════════════════
 
 import * as THREE from 'three';
@@ -25,22 +26,32 @@ import particleFrag        from './shaders/spectral.js';        // noise pre-inc
 // CSS is now loaded via <link> in index.html — no JS import needed.
 
 // ───────────────────────────────────────────────────────
-// Configuration
+// Adaptive Performance Configuration
 // ───────────────────────────────────────────────────────
 const isMobile      = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-const TEXTURE_WIDTH = isMobile ? 512 : 1024;          // 262 144  or  1 048 576 particles
+const isLowEnd      = isMobile && (navigator.hardwareConcurrency || 4) <= 4;
+const memoryGB       = (navigator.deviceMemory || 4);
+const isVeryLowEnd  = isLowEnd && memoryGB <= 2;
+
+// Adaptive particle count: very-low-end → 256², low-end → 512², desktop → 1024²
+const TEXTURE_WIDTH = isVeryLowEnd ? 256 : (isMobile ? 512 : 1024);
 const PARTICLE_COUNT = TEXTURE_WIDTH * TEXTURE_WIDTH;
 
 // ───────────────────────────────────────────────────────
-// Renderer
+// Renderer — tuned for reliability on all GPUs
 // ───────────────────────────────────────────────────────
 const canvas   = document.getElementById('canvas');
 const renderer = new THREE.WebGLRenderer({
     canvas,
     antialias: false,
     powerPreference: 'high-performance',
+    stencil: false,                // save GPU memory
+    depth: true,
 });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+// Adaptive pixel ratio — cap at 1.5 on mobile for framerate
+const maxDPR = isMobile ? 1.5 : 2;
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxDPR));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
@@ -189,7 +200,8 @@ let nebulaPoints;
 // ═══════════════════════════════════════════════════════
 const gpuCompute = new GPUComputationRenderer(TEXTURE_WIDTH, TEXTURE_WIDTH, renderer);
 
-if (isMobile) gpuCompute.setDataType(THREE.HalfFloatType);
+// Use HalfFloat on mobile/low-end to halve GPU memory bandwidth
+if (isMobile || isLowEnd) gpuCompute.setDataType(THREE.HalfFloatType);
 
 // Initial data textures
 const dtPosition = gpuCompute.createTexture();
@@ -277,7 +289,7 @@ const particleMat = new THREE.ShaderMaterial({
         uPositionTexture: { value: null },
         uVelocityTexture: { value: null },
         uPixelRatio:      { value: renderer.getPixelRatio() },
-        uPointSize:       { value: isMobile ? 1.5 : 2.0 },
+        uPointSize:       { value: isVeryLowEnd ? 2.5 : (isMobile ? 1.8 : 2.0) },
         uTime:            { value: 0 },
         uTemperature:     { value: 1e12 },
         uPhase:           { value: 0 },
@@ -292,36 +304,44 @@ const particles = new THREE.Points(particleGeo, particleMat);
 scene.add(particles);
 
 // ═══════════════════════════════════════════════════════
-// POST-PROCESSING — Unreal Bloom + Film Grain
+// POST-PROCESSING — Unreal Bloom + Film Grain (adaptive)
 // ═══════════════════════════════════════════════════════
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 
+// Adaptive bloom resolution — half res on mobile for perf
+const bloomResScale = isMobile ? 0.5 : 1.0;
 const bloomPass = new UnrealBloomPass(
-    new THREE.Vector2(window.innerWidth, window.innerHeight),
+    new THREE.Vector2(
+        window.innerWidth * bloomResScale,
+        window.innerHeight * bloomResScale
+    ),
     1.8,    // strength
     0.6,    // radius
     0.05,   // threshold
 );
 composer.addPass(bloomPass);
 
-const grainPass = createGrainPass();
-composer.addPass(grainPass);
+// Grain is cheap but skip on very-low-end to save fragment ops
+const grainPass = isVeryLowEnd ? null : createGrainPass();
+if (grainPass) composer.addPass(grainPass);
 
 // ═══════════════════════════════════════════════════════
 // CONTROLLERS
 // ═══════════════════════════════════════════════════════
 const bangCtrl    = new BigBangController();
-const sensors     = new SensorHub();
 const cosmicAudio = new CosmicAudio();
+const sensors     = new SensorHub(cosmicAudio);   // feeds procedural audio analysis (non-echo)
 const mouseField  = new MouseField(camera, canvas);
 
 // ═══════════════════════════════════════════════════════
-// FPS COUNTER
+// FPS COUNTER + ADAPTIVE QUALITY
 // ═══════════════════════════════════════════════════════
 let fpsFrames = 0;
 let fpsTime   = 0;
-let fpsValue  = 0;
+let fpsValue  = 60;
+let qualityLevel = isMobile ? 1 : 2; // 0 = low, 1 = medium, 2 = high
+let lowFpsCount  = 0;
 
 function updateFPS(dt) {
     fpsFrames++;
@@ -330,7 +350,35 @@ function updateFPS(dt) {
         fpsValue = Math.round(fpsFrames / fpsTime);
         fpsFrames = 0;
         fpsTime   = 0;
+
+        // Adaptive quality: downgrade if sustained low FPS
+        if (fpsValue < 24 && qualityLevel > 0) {
+            lowFpsCount++;
+            if (lowFpsCount >= 3) {
+                qualityLevel--;
+                lowFpsCount = 0;
+                applyQualityLevel();
+            }
+        } else {
+            lowFpsCount = Math.max(0, lowFpsCount - 1);
+        }
     }
+}
+
+function applyQualityLevel() {
+    if (qualityLevel === 0) {
+        // Low: reduce bloom, DPR, disable grain
+        renderer.setPixelRatio(1);
+        bloomPass.strength = 0.6;
+        if (grainPass) grainPass.enabled = false;
+    } else if (qualityLevel === 1) {
+        // Medium
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+        if (grainPass) grainPass.enabled = true;
+    }
+    // Propagate new pixel ratio
+    particleMat.uniforms.uPixelRatio.value = renderer.getPixelRatio();
+    onResize();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -369,11 +417,15 @@ window.addEventListener('keydown', (e) => {
     if (e.key === 'r' || e.key === 'R') {
         if (bangCtrl.started) restartSimulation();
     }
+    if (e.key === 'f' || e.key === 'F') {
+        toggleFullscreen();
+    }
 });
 
 // ═══════════════════════════════════════════════════════
-// RESIZE
+// RESIZE (debounced for performance)
 // ═══════════════════════════════════════════════════════
+let resizeTimer;
 function onResize() {
     const w = window.innerWidth;
     const h = window.innerHeight;
@@ -381,10 +433,22 @@ function onResize() {
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
     composer.setSize(w, h);
-    bloomPass.resolution.set(w, h);
+    bloomPass.resolution.set(w * bloomResScale, h * bloomResScale);
     particleMat.uniforms.uPixelRatio.value = renderer.getPixelRatio();
 }
-window.addEventListener('resize', onResize);
+window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(onResize, 100);
+});
+
+// Fullscreen API support for immersive experience
+function toggleFullscreen() {
+    if (!document.fullscreenElement) {
+        canvas.requestFullscreen?.() || canvas.webkitRequestFullscreen?.();
+    } else {
+        document.exitFullscreen?.() || document.webkitExitFullscreen?.();
+    }
+}
 
 // ═══════════════════════════════════════════════════════
 // RENDER LOOP
@@ -398,12 +462,12 @@ function animate() {
     const dt = Math.min(clock.getDelta(), 0.05);       // cap spikes
     elapsed += dt;
 
-    // ─── FPS ───
+    // ─── FPS + Adaptive Quality ───
     updateFPS(dt);
 
     // ─── Update controllers ───
     bangCtrl.update(dt);
-    sensors.update();
+    sensors.update(dt);
 
     // ─── Push state into GPGPU uniforms ───
     posU.uDeltaTime.value = dt;
@@ -417,7 +481,7 @@ function animate() {
     velU.uGravityStrength.value = bangCtrl.gravityStrength;
     velU.uPhase.value           = bangCtrl.phase;
 
-    // Sensors → GPU
+    // Sensors → GPU (gyro smoothed, audio from procedural source — non-echo)
     velU.uGyro.value.set(sensors.gyro.x, sensors.gyro.y, sensors.gyro.z);
     velU.uAudioLevel.value = sensors.audioLevel;
     velU.uAudioBass.value  = sensors.audioBass;
@@ -429,13 +493,24 @@ function animate() {
 
     // ─── CAMERA CHOREOGRAPHY ───
     if (sensors.hasGyro) {
-        // Mobile — gyroscope drives camera
+        // Mobile — full gyroscopic 3-axis camera with smooth damping
         controls.autoRotate = false;
-        camera.position.x += (sensors.gyro.x * 80 - camera.position.x) * 0.02;
-        camera.position.y += (sensors.gyro.y * 60 - camera.position.y) * 0.02;
+        const gyroDamp = 0.04;            // smoother on low-end
+        camera.position.x += (sensors.gyro.x * 100 - camera.position.x) * gyroDamp;
+        camera.position.y += (sensors.gyro.y * 80  - camera.position.y) * gyroDamp;
+
+        // Z-axis rotation from compass for full gyroscopic feel
+        const zTilt = sensors.gyro.z * Math.PI * 0.15;
+        camera.rotation.z += (zTilt - camera.rotation.z) * 0.02;
+
         const targetZ = cameraTargets[bangCtrl.phase] || 400;
-        camera.position.z += (targetZ - camera.position.z) * 0.015;
+        camera.position.z += (targetZ - camera.position.z) * 0.02;
         camera.lookAt(0, 0, 0);
+
+        // Accelerometer shake → expansion burst
+        if (sensors.hasMotion && sensors.shakeIntensity > 2.0) {
+            velU.uExpansionRate.value += sensors.shakeIntensity * 0.5;
+        }
     } else {
         // Desktop — smooth cinematic dolly tied to epoch
         const targetZ = cameraTargets[bangCtrl.phase] || 400;
@@ -464,10 +539,12 @@ function animate() {
     cosmicAudio.update(bangCtrl.phase, bangCtrl.temperature, bangCtrl.time);
 
     // ─── Post-processing dynamics ───
-    bloomPass.strength = 0.8 + Math.min(bangCtrl.temperature / 1e10, 1.5);
-    grainPass.uniforms.uTime.value = elapsed;
-    // Grain intensity: higher during singularity/inflation for drama
-    grainPass.uniforms.uIntensity.value = bangCtrl.phase < 2 ? 0.08 : 0.04;
+    const bloomTarget = 0.8 + Math.min(bangCtrl.temperature / 1e10, 1.5);
+    bloomPass.strength += (bloomTarget - bloomPass.strength) * 0.05; // smooth bloom
+    if (grainPass) {
+        grainPass.uniforms.uTime.value = elapsed;
+        grainPass.uniforms.uIntensity.value = bangCtrl.phase < 2 ? 0.08 : 0.04;
+    }
 
     // ─── Nebula slow drift ───
     nebulaPoints.rotation.y = elapsed * 0.003;
@@ -479,9 +556,10 @@ function animate() {
     // ─── HUD ───
     phaseLabel.textContent = bangCtrl.phaseName;
     const sensorIcons =
-        (sensors.hasGyro  ? ' · GYRO'  : '') +
-        (sensors.hasAudio ? ' · MIC'   : '') +
-        (mouseField.active ? ' · TOUCH' : '');
+        (sensors.hasGyro   ? ' · GYRO'   : '') +
+        (sensors.hasMotion ? ' · ACCEL'   : '') +
+        (sensors.hasAudio  ? ' · AUDIO'   : '') +
+        (mouseField.active ? ' · TOUCH'   : '');
     statsEl.textContent =
         `${(PARTICLE_COUNT / 1e6).toFixed(2)}M particles · ` +
         `T = ${bangCtrl.temperature.toExponential(1)} K · ` +

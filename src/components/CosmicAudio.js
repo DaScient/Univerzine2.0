@@ -2,6 +2,7 @@
 // CosmicAudio — Procedural ambient sound synthesis
 // Generates evolving cosmic drone tied to Big Bang epochs.
 // Uses Web Audio API oscillators + filters, no mic needed.
+// Non-echo: masterGain is exposed for SensorHub analysis.
 // ────────────────────────────────────────────────────────
 
 export class CosmicAudio {
@@ -10,9 +11,11 @@ export class CosmicAudio {
         this.masterGain  = null;
         this.droneOsc    = null;
         this.subOsc      = null;
+        this.harmOsc     = null;
         this.noiseGain   = null;
         this.noiseSource = null;
         this.filter      = null;
+        this.compressor  = null;
         this.ready       = false;
     }
 
@@ -24,10 +27,19 @@ export class CosmicAudio {
             return;
         }
 
+        // ─── Dynamics compressor (prevents clipping, clean output) ──
+        this.compressor = this.ctx.createDynamicsCompressor();
+        this.compressor.threshold.value = -24;
+        this.compressor.knee.value = 12;
+        this.compressor.ratio.value = 4;
+        this.compressor.attack.value = 0.003;
+        this.compressor.release.value = 0.15;
+        this.compressor.connect(this.ctx.destination);
+
         // ─── Master volume ──────────────────────────
         this.masterGain = this.ctx.createGain();
         this.masterGain.gain.value = 0;
-        this.masterGain.connect(this.ctx.destination);
+        this.masterGain.connect(this.compressor);
 
         // ─── Low-pass filter ────────────────────────
         this.filter = this.ctx.createBiquadFilter();
@@ -55,6 +67,16 @@ export class CosmicAudio {
         this.subOsc.connect(subGain);
         subGain.connect(this.filter);
         this.subOsc.start();
+
+        // ─── Harmonic overtone (adds spectral richness) ──
+        this.harmOsc = this.ctx.createOscillator();
+        this.harmOsc.type = 'triangle';
+        this.harmOsc.frequency.value = 110;            // A2
+        this._harmGain = this.ctx.createGain();
+        this._harmGain.gain.value = 0.04;
+        this.harmOsc.connect(this._harmGain);
+        this._harmGain.connect(this.filter);
+        this.harmOsc.start();
 
         // ─── Noise layer (simulates cosmic hiss) ────
         this._createNoise();
@@ -105,24 +127,32 @@ export class CosmicAudio {
             this.droneOsc.frequency.linearRampToValueAtTime(40 + Math.sin(time * 0.5) * 5, now + ramp);
             this.filter.frequency.linearRampToValueAtTime(200, now + ramp);
             this.noiseGain.gain.linearRampToValueAtTime(0.01, now + ramp);
+            this._harmGain.gain.linearRampToValueAtTime(0.02, now + ramp);
+            this.harmOsc.frequency.linearRampToValueAtTime(80, now + ramp);
         } else if (phase === 1) {
             // INFLATION — rising roar, opening filter, louder noise
             this.masterGain.gain.linearRampToValueAtTime(0.35, now + ramp);
             this.droneOsc.frequency.linearRampToValueAtTime(80 + time * 4, now + ramp);
             this.filter.frequency.linearRampToValueAtTime(1200 + time * 100, now + ramp);
             this.noiseGain.gain.linearRampToValueAtTime(0.08, now + ramp);
+            this._harmGain.gain.linearRampToValueAtTime(0.08, now + ramp);
+            this.harmOsc.frequency.linearRampToValueAtTime(165 + time * 3, now + ramp);
         } else if (phase === 2) {
             // COOLING — settling, gentle modulation
             this.masterGain.gain.linearRampToValueAtTime(0.2, now + ramp);
             this.droneOsc.frequency.linearRampToValueAtTime(55 + Math.sin(time * 0.2) * 10, now + ramp);
             this.filter.frequency.linearRampToValueAtTime(600, now + ramp);
             this.noiseGain.gain.linearRampToValueAtTime(0.04, now + ramp);
+            this._harmGain.gain.linearRampToValueAtTime(0.05, now + ramp);
+            this.harmOsc.frequency.linearRampToValueAtTime(110, now + ramp);
         } else {
             // STRUCTURE — deep calm, slow oscillation
             this.masterGain.gain.linearRampToValueAtTime(0.15, now + ramp);
             this.droneOsc.frequency.linearRampToValueAtTime(50 + Math.sin(time * 0.08) * 8, now + ramp);
             this.filter.frequency.linearRampToValueAtTime(400, now + ramp);
             this.noiseGain.gain.linearRampToValueAtTime(0.025, now + ramp);
+            this._harmGain.gain.linearRampToValueAtTime(0.035, now + ramp);
+            this.harmOsc.frequency.linearRampToValueAtTime(82.5 + Math.sin(time * 0.05) * 12, now + ramp);
         }
     }
 

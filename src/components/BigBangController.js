@@ -2,6 +2,7 @@
 // BigBangController — Cosmic epoch state machine
 // Manages phase transitions, expansion rate, temperature,
 // and gravity strength across the simulation timeline.
+// Enhanced with smoother transitions and richer dynamics.
 // ────────────────────────────────────────────────────────
 
 export class BigBangController {
@@ -13,6 +14,7 @@ export class BigBangController {
         this.temperature     = 1e12;
         this.gravityStrength = 0;
         this.started         = false;
+        this._prevPhase      = -1;
 
         this.epochs = [
             { name: 'SINGULARITY',           end: 3   },
@@ -33,6 +35,7 @@ export class BigBangController {
     restart() {
         this.time            = 0;
         this.phase           = 0;
+        this._prevPhase      = -1;
         this.phaseName       = 'SINGULARITY';
         this.expansionRate   = 0;
         this.temperature     = 1e12;
@@ -65,7 +68,9 @@ export class BigBangController {
             // ── INFLATION ───────────────────────────
             this.phase = 1;
             const p = (t - 3) / 4;                        // 0 → 1
-            this.expansionRate   = 2.0 + Math.pow(p, 2) * 30.0;
+            // Smooth ease-in-out for expansion
+            const eased = p * p * (3 - 2 * p);
+            this.expansionRate   = 2.0 + eased * 30.0;
             this.temperature     = 1e12 * Math.exp(-p * 3);
             this.gravityStrength = 0.3;
 
@@ -85,12 +90,17 @@ export class BigBangController {
             this.temperature     = Math.max(2.725, this.temperature * 0.9995);
             this.gravityStrength = 3.0 + p * 2.0;
         }
+
+        this._prevPhase = this.phase;
     }
 
     /** Returns true when a haptic pulse should fire this frame. */
     shouldPulseHaptic() {
-        // Short bursts during early inflation
-        return this.phase === 1 && this.time > 3 && this.time < 5
-            && Math.random() < 0.3;
+        // Short bursts during early inflation + phase transitions
+        if (this.phase === 1 && this.time > 3 && this.time < 5
+            && Math.random() < 0.3) return true;
+        // Single pulse on phase change
+        if (this.phase !== this._prevPhase && this._prevPhase >= 0) return true;
+        return false;
     }
 }
