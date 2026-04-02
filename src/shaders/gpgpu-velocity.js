@@ -31,6 +31,13 @@ uniform float uStarFormationRate;
 // Quantum eccentricity
 uniform float uQuantumJitter;
 
+// ─── AR Camera Flow / Surface Detection ─────────
+uniform sampler2D uFlowTexture;     // (flowX, flowY, surfaceConf, luminance) 64×64
+uniform float     uARActive;        // 0 or 1
+uniform float     uARSurfaceForce;  // surface repulsion strength
+uniform float     uARFlowForce;     // motion-following strength
+uniform float     uARLuminance;     // scene-average brightness [0,1]
+
 // ─── Deterministic hash functions ───────────────────
 float hash11(float p) {
     p = fract(p * 0.1031);
@@ -233,6 +240,57 @@ void main() {
     float mouseFalloff = smoothstep(mouseRadius, 0.0, mouseDist);
     vec3 mouseForce = mouseDir * uMouseStrength * mouseFalloff * uMouseActive * 12.0;
 
+    // ─── AR SURFACE-REACTIVE FORCE FIELD ────────────
+    // Projects particle into screen-space UV, samples the flow
+    // texture, and generates forces from detected surfaces.
+    vec3 arSurfaceForce = vec3(0.0);
+    vec3 arFlowForce    = vec3(0.0);
+    if (uARActive > 0.5) {
+        // Project particle position into normalised screen UV [0,1]
+        // Approximate: use XY position mapped to a viewport range
+        float viewRange = 200.0 + uPhase * 40.0;
+        vec2 screenUV = clamp(position.xy / viewRange * 0.5 + 0.5, 0.0, 1.0);
+
+        // Sample flow texture: (flowX, flowY, surfaceConfidence, luminance)
+        vec4 flowData = texture2D(uFlowTexture, screenUV);
+        float flowX       = flowData.r;
+        float flowY       = flowData.g;
+        float surfaceConf = flowData.b;
+        float localLum    = flowData.a;
+
+        // ── Surface repulsion: particles bounce off detected surfaces ──
+        // High surfaceConf → strong outward force pushing particles away
+        // from the camera plane in the Z direction, plus deflection in XY
+        float surfaceStrength = surfaceConf * uARSurfaceForce;
+
+        // Primary: push particles outward along Z (away from camera/surface)
+        arSurfaceForce.z += surfaceStrength * 15.0;
+
+        // Secondary: deflect tangentially based on surface normal approximation
+        // Use flow gradients as proxy for surface orientation
+        float flowMag = length(vec2(flowX, flowY));
+        arSurfaceForce.x += flowX * surfaceStrength * 8.0;
+        arSurfaceForce.y += flowY * surfaceStrength * 8.0;
+
+        // Proximity boost: particles closer to camera plane (small |z|) feel more force
+        float zProximity = smoothstep(80.0, 5.0, abs(position.z));
+        arSurfaceForce *= zProximity;
+
+        // ── Motion-following: particles drift with camera motion flow ──
+        arFlowForce.x = flowX * uARFlowForce * 6.0;
+        arFlowForce.y = flowY * uARFlowForce * 6.0;
+
+        // Flow-induced turbulence: large flow vectors create local swirl
+        if (flowMag > 0.1) {
+            vec3 swirl = vec3(-flowY, flowX, 0.0) * flowMag * uARFlowForce * 3.0;
+            arFlowForce += swirl;
+        }
+
+        // ── Luminance-reactive energy: bright regions accelerate particles ──
+        float lumBoost = localLum * uARLuminance * 5.0;
+        arFlowForce += dir * lumBoost * 0.5;
+    }
+
     // ══════════════════════════════════════════════════
     // PHASE-SPECIFIC DYNAMICS
     // ══════════════════════════════════════════════════
@@ -316,10 +374,12 @@ void main() {
         velocity *= 0.99;
     }
 
-    // Always apply environmental sensors + mouse
+    // Always apply environmental sensors + mouse + AR
     velocity += gyroForce  * uDeltaTime;
     velocity += audioForce * uDeltaTime;
     velocity += mouseForce * uDeltaTime;
+    velocity += arSurfaceForce * uDeltaTime;
+    velocity += arFlowForce    * uDeltaTime;
 
     // Speed ceiling (increased for supernovae)
     float maxSpeed = 60.0 + uSupernovaIntensity * 40.0;

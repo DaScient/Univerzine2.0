@@ -17,6 +17,8 @@ import { SensorHub }         from './components/SensorHub.js';
 import { CosmicAudio }       from './components/CosmicAudio.js';
 import { MouseField }        from './components/MouseField.js';
 import { createGrainPass }   from './components/GrainPass.js';
+import { CameraAR }          from './components/CameraAR.js';
+import { CameraFlow }        from './components/CameraFlow.js';
 
 // Shader sources — plain ES modules, work in both raw-browser and Vite.
 import gpgpuPositionShader from './shaders/gpgpu-position.js';
@@ -44,6 +46,8 @@ const canvas   = document.getElementById('canvas');
 const renderer = new THREE.WebGLRenderer({
     canvas,
     antialias: false,
+    alpha: true,                   // enable backbuffer transparency for AR camera passthrough
+    premultipliedAlpha: false,     // correct alpha compositing for additive particle blending
     powerPreference: 'high-performance',
     stencil: false,                // save GPU memory
     depth: true,
@@ -54,6 +58,7 @@ const maxDPR = isMobile ? 1.5 : 2;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxDPR));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.setClearColor(0x000000, 1);               // opaque black by default; AR toggles to alpha=0
 
 if (!renderer.capabilities.isWebGL2) {
     document.getElementById('overlay').innerHTML =
@@ -275,6 +280,13 @@ velU.uStarFormationRate  = { value: 0 };
 // Quantum eccentricity
 velU.uQuantumJitter      = { value: 0 };
 
+// AR Camera Flow / Surface Detection
+velU.uFlowTexture   = { value: null };
+velU.uARActive      = { value: 0 };
+velU.uARSurfaceForce = { value: 0 };
+velU.uARFlowForce   = { value: 0 };
+velU.uARLuminance   = { value: 0 };
+
 // Texture wrapping
 positionVariable.wrapS = THREE.RepeatWrapping;
 positionVariable.wrapT = THREE.RepeatWrapping;
@@ -310,6 +322,10 @@ const particleMat = new THREE.ShaderMaterial({
         uPhase:              { value: 0 },
         uSupernovaIntensity: { value: 0 },
         uStarFormationRate:  { value: 0 },
+        // AR camera integration
+        uARActive:           { value: 0 },
+        uARSceneLuminance:   { value: 0 },
+        uARSurfaceCoverage:  { value: 0 },
     },
     transparent: true,
     blending:    THREE.AdditiveBlending,
@@ -350,6 +366,8 @@ const bangCtrl    = new BigBangController();
 const cosmicAudio = new CosmicAudio();
 const sensors     = new SensorHub(cosmicAudio);   // feeds procedural audio analysis (non-echo)
 const mouseField  = new MouseField(camera, canvas);
+const cameraAR    = new CameraAR();
+const cameraFlow  = new CameraFlow(renderer);
 
 // ═══════════════════════════════════════════════════════
 // FPS COUNTER + ADAPTIVE QUALITY
@@ -414,6 +432,8 @@ function startSimulation() {
     hud.classList.add('visible');
     sensors.pulseHaptic(50);
     clock.start();
+    // Show AR camera button if device supports getUserMedia
+    if (arBtn && cameraAR.supported) arBtn.style.display = 'block';
 }
 
 function restartSimulation() {
@@ -434,6 +454,17 @@ setTimeout(() => {
     if (!bangCtrl.started) startSimulation();
 }, 2500);
 
+// AR camera toggle button
+const arBtn = document.getElementById('ar-toggle');
+if (arBtn) {
+    arBtn.addEventListener('click', async () => {
+        const active = await cameraAR.toggle(renderer);
+        arBtn.classList.toggle('active', active);
+        arBtn.textContent = active ? 'AR ON' : 'AR';
+        if (!active) cameraFlow.reset();
+    });
+}
+
 // Keyboard shortcuts
 window.addEventListener('keydown', (e) => {
     if (e.key === 'r' || e.key === 'R') {
@@ -441,6 +472,9 @@ window.addEventListener('keydown', (e) => {
     }
     if (e.key === 'f' || e.key === 'F') {
         toggleFullscreen();
+    }
+    if (e.key === 'c' || e.key === 'C') {
+        if (bangCtrl.started && arBtn) arBtn.click();
     }
 });
 
@@ -520,6 +554,17 @@ function animate() {
     velU.uMouseStrength.value = mouseField.strength;
     velU.uMouseActive.value   = mouseField.active ? 1.0 : 0.0;
 
+    // AR Camera Flow → GPU (surface-reactive particle forces)
+    if (cameraAR.active && cameraAR.video) {
+        cameraFlow.update(cameraAR.video);
+    }
+    const arOn = cameraAR.active && cameraFlow.active ? 1.0 : 0.0;
+    velU.uARActive.value       = arOn;
+    velU.uFlowTexture.value    = cameraFlow.flowTexture;
+    velU.uARSurfaceForce.value = cameraFlow.surfaceCoverage * 2.0;
+    velU.uARFlowForce.value    = cameraFlow.sceneMotion * 3.0;
+    velU.uARLuminance.value    = cameraFlow.sceneLuminance;
+
     // ─── CAMERA CHOREOGRAPHY ───
     if (sensors.hasGyro) {
         // Mobile — full gyroscopic 3-axis camera with smooth damping
@@ -579,6 +624,11 @@ function animate() {
     particleMat.uniforms.uSupernovaIntensity.value = bangCtrl.supernovaIntensity;
     particleMat.uniforms.uStarFormationRate.value   = bangCtrl.starFormationRate;
 
+    // AR camera metrics → spectral shader
+    particleMat.uniforms.uARActive.value          = arOn;
+    particleMat.uniforms.uARSceneLuminance.value  = cameraFlow.sceneLuminance;
+    particleMat.uniforms.uARSurfaceCoverage.value = cameraFlow.surfaceCoverage;
+
     // Haptic echo during inflation
     if (bangCtrl.shouldPulseHaptic()) sensors.pulseHaptic(12);
 
@@ -606,6 +656,8 @@ function animate() {
         (sensors.hasGyro   ? ' · GYRO'   : '') +
         (sensors.hasMotion ? ' · ACCEL'   : '') +
         (sensors.hasAudio  ? ' · AUDIO'   : '') +
+        (cameraAR.active   ? ' · CAM'    : '') +
+        (cameraFlow.active ? ' · FLOW'   : '') +
         (mouseField.active ? ' · TOUCH'   : '');
     statsEl.textContent =
         `${(PARTICLE_COUNT / 1e6).toFixed(2)}M particles · ` +

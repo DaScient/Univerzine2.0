@@ -16,6 +16,11 @@ uniform float uPhase;
 uniform float uSupernovaIntensity;
 uniform float uStarFormationRate;
 
+// AR camera integration
+uniform float uARActive;
+uniform float uARSceneLuminance;
+uniform float uARSurfaceCoverage;
+
 // ─── CIE-approximate wavelength → visible RGB ──────────
 vec3 wavelengthToRGB(float wavelength) {
     float w = clamp(wavelength, 380.0, 780.0);
@@ -143,6 +148,36 @@ void main() {
     if (uPhase > 6.5) {
         float deathFade = (uPhase - 6.5) * 2.0;
         color *= max(0.02, 1.0 - deathFade * 0.95);
+    }
+
+    // ─── AR CAMERA LUMINANCE-REACTIVE COLORING ──────
+    if (uARActive > 0.5) {
+        // Bright environments: warm golden-white uplift
+        // Dark environments: deep blue-violet shift
+        float lumShift = uARSceneLuminance * 2.0 - 1.0;   // [-1, 1] dark-to-bright
+
+        // Warm boost in bright scenes (golden photon bath)
+        vec3 warmTint = vec3(1.0, 0.85, 0.55) * max(0.0, lumShift) * 0.3;
+        // Cool boost in dark scenes (cosmic void deepening)
+        vec3 coolTint = vec3(0.3, 0.4, 1.0) * max(0.0, -lumShift) * 0.25;
+        color += warmTint + coolTint;
+
+        // Surface-detected regions: particles near surfaces get
+        // an iridescent edge shimmer (holographic AR effect)
+        if (uARSurfaceCoverage > 0.1) {
+            float iridescence = sin(vDistFromCenter * 0.3 + uTime * 2.0 + vSpeed) * 0.5 + 0.5;
+            vec3 iriColor = mix(
+                vec3(0.3, 0.8, 1.0),
+                vec3(1.0, 0.4, 0.8),
+                iridescence
+            );
+            float surfaceGlow = uARSurfaceCoverage * smoothstep(100.0, 20.0, vDistFromCenter);
+            color += iriColor * surfaceGlow * 0.2;
+        }
+
+        // Overall brightness modulation: AR mode slightly boosts
+        // emissive intensity so particles stand out over camera feed
+        color *= 1.0 + uARSceneLuminance * 0.4;
     }
 
     // ─── ALPHA COMPOSITING ──────────────────────────
