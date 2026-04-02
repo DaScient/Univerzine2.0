@@ -423,6 +423,19 @@ const overlay    = document.getElementById('overlay');
 const hud        = document.getElementById('hud');
 const phaseLabel = document.getElementById('phase-label');
 const statsEl    = document.getElementById('stats');
+const errorToast = document.getElementById('ar-error-toast');
+const errorText  = document.getElementById('ar-error-text');
+
+function showARError(message) {
+    if (message && errorToast) {
+        errorText.textContent = message;
+        errorToast.classList.remove('hidden');
+        // Auto-hide after 4 seconds
+        setTimeout(() => {
+            errorToast.classList.add('hidden');
+        }, 4000);
+    }
+}
 
 function startSimulation() {
     sensors.init();
@@ -461,7 +474,12 @@ if (arBtn) {
         const active = await cameraAR.toggle(renderer);
         arBtn.classList.toggle('active', active);
         arBtn.textContent = active ? 'AR ON' : 'AR';
-        if (!active) cameraFlow.reset();
+        if (!active) {
+            cameraFlow.reset();
+            // Show error message if there was a failure
+            const errMsg = cameraAR.getErrorMessage();
+            if (errMsg) showARError(errMsg);
+        }
     });
 }
 
@@ -561,9 +579,10 @@ function animate() {
     const arOn = cameraAR.active && cameraFlow.active ? 1.0 : 0.0;
     velU.uARActive.value       = arOn;
     velU.uFlowTexture.value    = cameraFlow.flowTexture;
-    velU.uARSurfaceForce.value = cameraFlow.surfaceCoverage * 2.0;
-    velU.uARFlowForce.value    = cameraFlow.sceneMotion * 3.0;
-    velU.uARLuminance.value    = cameraFlow.sceneLuminance;
+    // Improve force visibility: surface coverage + motion
+    velU.uARSurfaceForce.value = Math.max(0.5, cameraFlow.surfaceCoverage * 3.0);
+    velU.uARFlowForce.value    = Math.max(0.3, cameraFlow.sceneMotion * 4.0);
+    velU.uARLuminance.value    = cameraFlow.sceneLuminance * 1.5;
 
     // ─── CAMERA CHOREOGRAPHY ───
     if (sensors.hasGyro) {

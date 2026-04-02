@@ -81,11 +81,24 @@ export class CameraFlow {
      * @param {HTMLVideoElement} video
      */
     update(video) {
-        if (!video || video.readyState < 2) return;
+        if (!video || video.readyState < 2) {
+            // Video not ready: HAVE_CURRENT_DATA (2) or higher needed
+            return;
+        }
+
+        // Verify video dimensions are valid (auto-play succeeded)
+        if (video.videoWidth <= 0 || video.videoHeight <= 0) {
+            return;
+        }
 
         // ─── Step 1: Downsample video to 64×64 ─────
         this._ctx.drawImage(video, 0, 0, FLOW_RES, FLOW_RES);
         const imageData = this._ctx.getImageData(0, 0, FLOW_RES, FLOW_RES);
+
+        // Verify image data validity
+        if (!imageData || !imageData.data || imageData.data.length < FLOW_RES * FLOW_RES * 4) {
+            return;
+        }
 
         // Swap current → previous
         this._previousPixels.set(this._currentPixels);

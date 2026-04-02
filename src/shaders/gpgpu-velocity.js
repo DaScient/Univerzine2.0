@@ -247,9 +247,18 @@ void main() {
     vec3 arFlowForce    = vec3(0.0);
     if (uARActive > 0.5) {
         // Project particle position into normalised screen UV [0,1]
-        // Approximate: use XY position mapped to a viewport range
-        float viewRange = 200.0 + uPhase * 40.0;
-        vec2 screenUV = clamp(position.xy / viewRange * 0.5 + 0.5, 0.0, 1.0);
+        // Improved camera frustum mapping: particles in front of camera
+        // get better UV coverage
+        float camDist = abs(position.z);
+
+        // Dynamic view range based on phase and depth
+        float viewRangeX = mix(150.0, 300.0, uPhase / 8.0);
+        float viewRangeY = mix(120.0, 240.0, uPhase / 8.0);
+
+        // Map XY to screen space with depth-aware scaling
+        float depthScale = 1.0 / (1.0 + camDist * 0.02);  // closer = larger coverage
+        vec2 screenUV = position.xy / vec2(viewRangeX, viewRangeY) * depthScale * 0.5 + 0.5;
+        screenUV = clamp(screenUV, 0.02, 0.98);  // Keep away from texture edges to avoid filtering artifacts
 
         // Sample flow texture: (flowX, flowY, surfaceConfidence, luminance)
         vec4 flowData = texture2D(uFlowTexture, screenUV);
@@ -259,36 +268,47 @@ void main() {
         float localLum    = flowData.a;
 
         // ── Surface repulsion: particles bounce off detected surfaces ──
-        // High surfaceConf → strong outward force pushing particles away
-        // from the camera plane in the Z direction, plus deflection in XY
-        float surfaceStrength = surfaceConf * uARSurfaceForce;
+        // Surface confidence drives repulsive force away from camera
+        // Combined with proximity weighting for better responsiveness
+        float proximityBoost = smoothstep(120.0, 5.0, camDist);  // stronger when near camera
+        float surfaceStrength = surfaceConf * uARSurfaceForce * proximityBoost;
 
         // Primary: push particles outward along Z (away from camera/surface)
-        arSurfaceForce.z += surfaceStrength * 15.0;
+        arSurfaceForce.z += surfaceStrength * 20.0;
 
-        // Secondary: deflect tangentially based on surface normal approximation
-        // Use flow gradients as proxy for surface orientation
+        // Secondary: lateral deflection based on detected surface orientation
+        // Flow vectors indicate motion, which helps us infer surface tilt
         float flowMag = length(vec2(flowX, flowY));
-        arSurfaceForce.x += flowX * surfaceStrength * 8.0;
-        arSurfaceForce.y += flowY * surfaceStrength * 8.0;
+        arSurfaceForce.x += flowX * surfaceStrength * 12.0;
+        arSurfaceForce.y += flowY * surfaceStrength * 12.0;
 
-        // Proximity boost: particles closer to camera plane (small |z|) feel more force
-        float zProximity = smoothstep(80.0, 5.0, abs(position.z));
-        arSurfaceForce *= zProximity;
-
-        // ── Motion-following: particles drift with camera motion flow ──
-        arFlowForce.x = flowX * uARFlowForce * 6.0;
-        arFlowForce.y = flowY * uARFlowForce * 6.0;
-
-        // Flow-induced turbulence: large flow vectors create local swirl
-        if (flowMag > 0.1) {
-            vec3 swirl = vec3(-flowY, flowX, 0.0) * flowMag * uARFlowForce * 3.0;
-            arFlowForce += swirl;
+        // Cross-axis coupling: perpendicular flow creates spin
+        if (flowMag > 0.05) {
+            arSurfaceForce.x -= flowY * surfaceConf * uARSurfaceForce * 3.0;
+            arSurfaceForce.y += flowX * surfaceConf * uARSurfaceForce * 3.0;
         }
 
-        // ── Luminance-reactive energy: bright regions accelerate particles ──
-        float lumBoost = localLum * uARLuminance * 5.0;
-        arFlowForce += dir * lumBoost * 0.5;
+        // ── Motion-following: particles drift with camera motion flow ──
+        // Flow Force directly follows optical flow from camera motion
+        arFlowForce.x = flowX * uARFlowForce * 8.0;
+        arFlowForce.y = flowY * uARFlowForce * 8.0;
+
+        // Flow-induced vorticity: create swirling motion around large optical flow
+        float flowMagnitude = sqrt(flowX * flowX + flowY * flowY);
+        if (flowMagnitude > 0.1) {
+            // Perpendicular component creates rotation
+            vec3 swirl = vec3(-flowY, flowX, 0.0) * flowMagnitude * uARFlowForce * 4.0;
+            arFlowForce += swirl;
+
+            // Add turbulent jitter in flow-aligned direction
+            arFlowForce.z += flowMagnitude * uARFlowForce * sin(position.x * 0.1 + position.y * 0.1) * 2.0;
+        }
+
+        // ── Luminance-reactive acceleration ──
+        // Bright regions accelerate particles outward, creating energy attraction
+        float lumBoost = localLum * uARLuminance;
+        arFlowForce += dir * lumBoost * 8.0;
+        arFlowForce.z += lumBoost * 4.0;  // Also push outward in Z for volume effect
     }
 
     // ══════════════════════════════════════════════════
