@@ -2,6 +2,7 @@
 // GPGPU Position Compute — updates particle positions
 // Reads: texturePosition, textureVelocity (auto-injected)
 // Writes: vec4(position.xyz, age)
+// Enhanced with phase-aware integration and soft boundary.
 // ────────────────────────────────────────────────────────
 
 uniform float uDeltaTime;
@@ -16,16 +17,23 @@ void main() {
     if (uPhase < 0.5) {
         // SINGULARITY — particles barely drift, swirling in place
         pos.xyz += vel.xyz * uDeltaTime * 0.04;
-    } else if (uPhase < 1.5) {
-        // INFLATION — full velocity integration
-        pos.xyz += vel.xyz * uDeltaTime;
+    } else if (uPhase > 6.5) {
+        // HEAT DEATH — slow drift, particles scatter and fade
+        pos.xyz += vel.xyz * uDeltaTime * 0.3;
     } else {
-        // COOLING / STRUCTURE — standard integration
+        // INFLATION / COOLING / STRUCTURE / GALAXIES / STELLAR / SUPERNOVA
         pos.xyz += vel.xyz * uDeltaTime;
     }
 
     // Increment particle age (w channel)
     pos.w += uDeltaTime;
+
+    // Soft boundary — prevent particles from drifting to infinity
+    float r = length(pos.xyz);
+    float maxR = 500.0 + uPhase * 50.0;
+    if (r > maxR) {
+        pos.xyz *= maxR / r;
+    }
 
     gl_FragColor = pos;
 }

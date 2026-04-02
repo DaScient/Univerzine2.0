@@ -84,12 +84,16 @@ const camera = new THREE.PerspectiveCamera(
 );
 camera.position.set(0, 0, 120);
 
-// Phase-specific camera target distances
+// Phase-specific camera target distances (8 phases)
 const cameraTargets = {
     0: 30,     // singularity  — close-up
     1: 250,    // inflation    — pull back to see expansion
     2: 350,    // cooling      — wide view of filaments
-    3: 400,    // structure    — full galaxy survey
+    3: 400,    // structure + stellar ignition
+    4: 450,    // galaxy formation
+    5: 500,    // stellar evolution
+    6: 400,    // supernova era — pull in for drama
+    7: 600,    // heat death   — wide lonely view
 };
 
 // Desktop: orbit controls with gentle auto-rotate
@@ -260,6 +264,17 @@ velU.uMouseWorldPos   = { value: new THREE.Vector3() };
 velU.uMouseStrength   = { value: 0 };
 velU.uMouseActive     = { value: 0 };
 
+// Galaxy formation
+velU.uGalaxySeed        = { value: 0 };
+velU.uNumGalaxies       = { value: 8 };
+
+// Star lifecycle
+velU.uSupernovaIntensity = { value: 0 };
+velU.uStarFormationRate  = { value: 0 };
+
+// Quantum eccentricity
+velU.uQuantumJitter      = { value: 0 };
+
 // Texture wrapping
 positionVariable.wrapS = THREE.RepeatWrapping;
 positionVariable.wrapT = THREE.RepeatWrapping;
@@ -286,13 +301,15 @@ const particleMat = new THREE.ShaderMaterial({
     vertexShader:   particleVert,
     fragmentShader: particleFrag,
     uniforms: {
-        uPositionTexture: { value: null },
-        uVelocityTexture: { value: null },
-        uPixelRatio:      { value: renderer.getPixelRatio() },
-        uPointSize:       { value: isVeryLowEnd ? 2.5 : (isMobile ? 1.8 : 2.0) },
-        uTime:            { value: 0 },
-        uTemperature:     { value: 1e12 },
-        uPhase:           { value: 0 },
+        uPositionTexture:    { value: null },
+        uVelocityTexture:    { value: null },
+        uPixelRatio:         { value: renderer.getPixelRatio() },
+        uPointSize:          { value: isVeryLowEnd ? 2.5 : (isMobile ? 1.8 : 2.0) },
+        uTime:               { value: 0 },
+        uTemperature:        { value: 1e12 },
+        uPhase:              { value: 0 },
+        uSupernovaIntensity: { value: 0 },
+        uStarFormationRate:  { value: 0 },
     },
     transparent: true,
     blending:    THREE.AdditiveBlending,
@@ -412,6 +429,11 @@ function restartSimulation() {
 
 document.getElementById('start-btn').addEventListener('click', startSimulation);
 
+// Auto-play: auto-start after brief title display
+setTimeout(() => {
+    if (!bangCtrl.started) startSimulation();
+}, 2500);
+
 // Keyboard shortcuts
 window.addEventListener('keydown', (e) => {
     if (e.key === 'r' || e.key === 'R') {
@@ -481,6 +503,13 @@ function animate() {
     velU.uGravityStrength.value = bangCtrl.gravityStrength;
     velU.uPhase.value           = bangCtrl.phase;
 
+    // Galaxy + star lifecycle + quantum
+    velU.uGalaxySeed.value         = bangCtrl.galaxySeed;
+    velU.uNumGalaxies.value        = isMobile ? Math.min(bangCtrl.numGalaxies, 8) : bangCtrl.numGalaxies;
+    velU.uSupernovaIntensity.value = bangCtrl.supernovaIntensity;
+    velU.uStarFormationRate.value  = bangCtrl.starFormationRate;
+    velU.uQuantumJitter.value      = bangCtrl.quantumJitter;
+
     // Sensors → GPU (gyro smoothed, audio from procedural source — non-echo)
     velU.uGyro.value.set(sensors.gyro.x, sensors.gyro.y, sensors.gyro.z);
     velU.uAudioLevel.value = sensors.audioLevel;
@@ -516,8 +545,24 @@ function animate() {
         const targetZ = cameraTargets[bangCtrl.phase] || 400;
         const lerpRate = bangCtrl.phase === 1 ? 0.03 : 0.008;
         camera.position.z += (targetZ - camera.position.z) * lerpRate;
-        // Increase auto-rotate speed during structure formation
-        controls.autoRotateSpeed = bangCtrl.phase >= 3 ? 0.35 : 0.15;
+        // Vary auto-rotate speed by phase
+        if (bangCtrl.phase >= 6) {
+            controls.autoRotateSpeed = 0.08; // slow during supernova/heat death
+        } else if (bangCtrl.phase >= 3) {
+            controls.autoRotateSpeed = 0.35;
+        } else {
+            controls.autoRotateSpeed = 0.15;
+        }
+    }
+
+    // ─── AUTO-CYCLE RESEED ───
+    if (bangCtrl.needsReseed) {
+        fillSingularitySeed();
+        gpuCompute.renderTexture(dtPosition, gpuCompute.getCurrentRenderTarget(positionVariable));
+        gpuCompute.renderTexture(dtVelocity, gpuCompute.getCurrentRenderTarget(velocityVariable));
+        elapsed = 0;
+        camera.position.set(0, 0, 30);
+        bangCtrl.needsReseed = false;
     }
 
     // ─── GPGPU compute step ───
@@ -528,9 +573,11 @@ function animate() {
     const velTex = gpuCompute.getCurrentRenderTarget(velocityVariable).texture;
     particleMat.uniforms.uPositionTexture.value = posTex;
     particleMat.uniforms.uVelocityTexture.value = velTex;
-    particleMat.uniforms.uTime.value            = elapsed;
-    particleMat.uniforms.uTemperature.value     = bangCtrl.temperature;
-    particleMat.uniforms.uPhase.value           = bangCtrl.phase;
+    particleMat.uniforms.uTime.value               = elapsed;
+    particleMat.uniforms.uTemperature.value        = bangCtrl.temperature;
+    particleMat.uniforms.uPhase.value              = bangCtrl.phase;
+    particleMat.uniforms.uSupernovaIntensity.value = bangCtrl.supernovaIntensity;
+    particleMat.uniforms.uStarFormationRate.value   = bangCtrl.starFormationRate;
 
     // Haptic echo during inflation
     if (bangCtrl.shouldPulseHaptic()) sensors.pulseHaptic(12);
@@ -564,6 +611,7 @@ function animate() {
         `${(PARTICLE_COUNT / 1e6).toFixed(2)}M particles · ` +
         `T = ${bangCtrl.temperature.toExponential(1)} K · ` +
         `${fpsValue} FPS` +
+        (bangCtrl.cycleCount > 0 ? ` · CYCLE ${bangCtrl.cycleCount + 1}` : '') +
         sensorIcons;
 }
 

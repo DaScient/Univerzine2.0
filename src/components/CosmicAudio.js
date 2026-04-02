@@ -111,7 +111,7 @@ export class CosmicAudio {
 
     /**
      * Call every frame with the current epoch state.
-     * @param {number} phase   - 0 singularity · 1 inflation · 2 cooling · 3 structure
+     * @param {number} phase   - 0-7 across all epochs
      * @param {number} temperature - kelvin
      * @param {number} time    - seconds elapsed
      */
@@ -145,14 +145,47 @@ export class CosmicAudio {
             this.noiseGain.gain.linearRampToValueAtTime(0.04, now + ramp);
             this._harmGain.gain.linearRampToValueAtTime(0.05, now + ramp);
             this.harmOsc.frequency.linearRampToValueAtTime(110, now + ramp);
+        } else if (phase === 3) {
+            // STRUCTURE + STELLAR IGNITION — building energy
+            this.masterGain.gain.linearRampToValueAtTime(0.22, now + ramp);
+            this.droneOsc.frequency.linearRampToValueAtTime(60 + Math.sin(time * 0.15) * 12, now + ramp);
+            this.filter.frequency.linearRampToValueAtTime(700 + Math.sin(time * 0.3) * 100, now + ramp);
+            this.noiseGain.gain.linearRampToValueAtTime(0.05, now + ramp);
+            this._harmGain.gain.linearRampToValueAtTime(0.06, now + ramp);
+            this.harmOsc.frequency.linearRampToValueAtTime(130 + Math.sin(time * 0.1) * 15, now + ramp);
+        } else if (phase === 4) {
+            // GALAXY FORMATION — rich harmonic texture, wide spectrum
+            this.masterGain.gain.linearRampToValueAtTime(0.25, now + ramp);
+            this.droneOsc.frequency.linearRampToValueAtTime(65 + Math.sin(time * 0.12) * 8, now + ramp);
+            this.filter.frequency.linearRampToValueAtTime(900, now + ramp);
+            this.noiseGain.gain.linearRampToValueAtTime(0.045, now + ramp);
+            this._harmGain.gain.linearRampToValueAtTime(0.07, now + ramp);
+            this.harmOsc.frequency.linearRampToValueAtTime(155 + Math.sin(time * 0.08) * 20, now + ramp);
+        } else if (phase === 5) {
+            // STELLAR EVOLUTION — warm, sustained hum
+            this.masterGain.gain.linearRampToValueAtTime(0.2, now + ramp);
+            this.droneOsc.frequency.linearRampToValueAtTime(55 + Math.sin(time * 0.1) * 6, now + ramp);
+            this.filter.frequency.linearRampToValueAtTime(500, now + ramp);
+            this.noiseGain.gain.linearRampToValueAtTime(0.035, now + ramp);
+            this._harmGain.gain.linearRampToValueAtTime(0.05, now + ramp);
+            this.harmOsc.frequency.linearRampToValueAtTime(110 + Math.sin(time * 0.06) * 10, now + ramp);
+        } else if (phase === 6) {
+            // SUPERNOVA ERA — dramatic bursts, high noise, piercing harmonics
+            this.masterGain.gain.linearRampToValueAtTime(0.3, now + ramp);
+            this.droneOsc.frequency.linearRampToValueAtTime(70 + Math.sin(time * 1.5) * 20, now + ramp);
+            this.filter.frequency.linearRampToValueAtTime(1500 + Math.sin(time * 2.0) * 500, now + ramp);
+            this.noiseGain.gain.linearRampToValueAtTime(0.09, now + ramp);
+            this._harmGain.gain.linearRampToValueAtTime(0.09, now + ramp);
+            this.harmOsc.frequency.linearRampToValueAtTime(200 + Math.sin(time * 0.8) * 40, now + ramp);
         } else {
-            // STRUCTURE — deep calm, slow oscillation
-            this.masterGain.gain.linearRampToValueAtTime(0.15, now + ramp);
-            this.droneOsc.frequency.linearRampToValueAtTime(50 + Math.sin(time * 0.08) * 8, now + ramp);
-            this.filter.frequency.linearRampToValueAtTime(400, now + ramp);
-            this.noiseGain.gain.linearRampToValueAtTime(0.025, now + ramp);
-            this._harmGain.gain.linearRampToValueAtTime(0.035, now + ramp);
-            this.harmOsc.frequency.linearRampToValueAtTime(82.5 + Math.sin(time * 0.05) * 12, now + ramp);
+            // HEAT DEATH — fading to silence
+            const fade = Math.max(0.01, 1.0 - (time - 80) / 15);
+            this.masterGain.gain.linearRampToValueAtTime(0.08 * fade, now + ramp);
+            this.droneOsc.frequency.linearRampToValueAtTime(35 + fade * 10, now + ramp);
+            this.filter.frequency.linearRampToValueAtTime(150 * fade + 50, now + ramp);
+            this.noiseGain.gain.linearRampToValueAtTime(0.015 * fade, now + ramp);
+            this._harmGain.gain.linearRampToValueAtTime(0.02 * fade, now + ramp);
+            this.harmOsc.frequency.linearRampToValueAtTime(60, now + ramp);
         }
     }
 
