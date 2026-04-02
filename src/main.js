@@ -16,6 +16,7 @@ import { BigBangController } from './components/BigBangController.js';
 import { SensorHub }         from './components/SensorHub.js';
 import { CosmicAudio }       from './components/CosmicAudio.js';
 import { MouseField }        from './components/MouseField.js';
+import { FlyCamera }         from './components/FlyCamera.js';
 import { createGrainPass }   from './components/GrainPass.js';
 import { CameraAR }          from './components/CameraAR.js';
 import { CameraFlow }        from './components/CameraFlow.js';
@@ -366,6 +367,7 @@ const bangCtrl    = new BigBangController();
 const cosmicAudio = new CosmicAudio();
 const sensors     = new SensorHub(cosmicAudio);   // feeds procedural audio analysis (non-echo)
 const mouseField  = new MouseField(camera, canvas);
+const flyCamera   = new FlyCamera(camera, canvas);
 const cameraAR    = new CameraAR();
 const cameraFlow  = new CameraFlow(renderer);
 
@@ -447,6 +449,8 @@ function startSimulation() {
     clock.start();
     // Show AR camera button if device supports getUserMedia
     if (arBtn && cameraAR.supported) arBtn.style.display = 'block';
+    // Show fly mode button
+    if (flyBtn) flyBtn.style.display = 'block';
 }
 
 function restartSimulation() {
@@ -483,6 +487,34 @@ if (arBtn) {
     });
 }
 
+// Fly camera toggle button
+const flyBtn = document.getElementById('fly-toggle');
+const flyHud = document.getElementById('fly-hud');
+const flySpeedEl = document.getElementById('fly-speed');
+let flyModeActive = false;
+
+function toggleFlyMode() {
+    flyModeActive = !flyModeActive;
+    if (flyModeActive) {
+        flyCamera.enable();
+        controls.enabled = false;
+        flyBtn?.classList.add('active');
+        flyBtn.textContent = 'FLY ON';
+        flyHud?.classList.remove('hidden');
+    } else {
+        flyCamera.disable();
+        controls.enabled = true;
+        controls.autoRotate = !sensors.hasGyro;
+        flyBtn?.classList.remove('active');
+        flyBtn.textContent = 'FLY';
+        flyHud?.classList.add('hidden');
+    }
+}
+
+if (flyBtn) {
+    flyBtn.addEventListener('click', toggleFlyMode);
+}
+
 // Keyboard shortcuts
 window.addEventListener('keydown', (e) => {
     if (e.key === 'r' || e.key === 'R') {
@@ -493,6 +525,9 @@ window.addEventListener('keydown', (e) => {
     }
     if (e.key === 'c' || e.key === 'C') {
         if (bangCtrl.started && arBtn) arBtn.click();
+    }
+    if (e.key === 'v' || e.key === 'V') {
+        if (bangCtrl.started) toggleFlyMode();
     }
 });
 
@@ -585,7 +620,15 @@ function animate() {
     velU.uARLuminance.value    = cameraFlow.sceneLuminance * 1.5;
 
     // ─── CAMERA CHOREOGRAPHY ───
-    if (sensors.hasGyro) {
+    // Fly mode takes priority over all other camera controls
+    if (flyModeActive) {
+        flyCamera.update(delta);
+        // Update fly speed HUD
+        if (flySpeedEl) {
+            const speed = flyCamera.getSpeed();
+            flySpeedEl.textContent = `SPEED: ${speed.toFixed(1)}`;
+        }
+    } else if (sensors.hasGyro) {
         // Mobile — full gyroscopic 3-axis camera with smooth damping
         controls.autoRotate = false;
         const gyroDamp = 0.04;            // smoother on low-end
@@ -672,6 +715,7 @@ function animate() {
     // ─── HUD ───
     phaseLabel.textContent = bangCtrl.phaseName;
     const sensorIcons =
+        (flyModeActive     ? ' · FLY'    : '') +
         (sensors.hasGyro   ? ' · GYRO'   : '') +
         (sensors.hasMotion ? ' · ACCEL'   : '') +
         (sensors.hasAudio  ? ' · AUDIO'   : '') +

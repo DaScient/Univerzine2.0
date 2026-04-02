@@ -58,8 +58,13 @@
     <div id="phase-label">SINGULARITY</div>
     <div id="stats"></div>
   </div>
-  <div id="restart-hint">R = RESTART · F = FULLSCREEN · C = CAMERA AR · SCROLL = REPULSE/ATTRACT</div>
+  <div id="restart-hint">R = RESTART · F = FULLSCREEN · C = CAMERA AR · V = FLY MODE</div>
   <button id="ar-toggle" title="Toggle Camera AR (C)">AR</button>
+  <button id="fly-toggle" title="Toggle Fly Mode (V)">FLY</button>
+  <div id="fly-hud" class="fly-hud hidden">
+    <div id="fly-speed">SPEED: 0</div>
+    <div id="fly-controls">DRAG: LOOK · WASD/ARROWS: MOVE · Q/E: UP/DOWN · SPACE: BOOST</div>
+  </div>
   <canvas id="canvas"></canvas>
 
   <!-- Relative path works for both raw-branch serving and Vite dev -->
