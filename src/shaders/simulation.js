@@ -9,6 +9,8 @@ uniform float uTime;
 uniform float uSupernovaIntensity;
 uniform float uStarFormationRate;
 uniform float uHyperspaceWarp;
+uniform float uBlackHoleStrength;
+uniform float uCollisionIntensity;
 
 varying float vSpeed;
 varying float vAge;
@@ -61,7 +63,26 @@ void main() {
     // Hyperspace proximity glow — particles near dimensional folds grow
     float hyperspaceGlow = abs(sin(pos.x * 0.01 + pos.y * 0.012 + uTime * 0.2)) * uHyperspaceWarp * 0.6;
 
-    gl_PointSize = basePx * (speedBoost + starGlow + snFlash + hyperspaceGlow) * depthScale;
-    gl_PointSize = clamp(gl_PointSize, 0.5, 120.0);
+    // Black hole accretion glow — fast particles near singularities enlarge
+    float bhGlow = 0.0;
+    if (uBlackHoleStrength > 0.01 && vSpeed > 20.0) {
+        bhGlow = smoothstep(20.0, 50.0, vSpeed) * uBlackHoleStrength * 1.5;
+    }
+
+    // Collision birth/death flash sizing
+    float collisionGlow = 0.0;
+    if (uCollisionIntensity > 0.01) {
+        // Young fast particles: birth flash
+        if (vAge < 5.0 && vSpeed > 15.0) {
+            collisionGlow += (1.0 - vAge / 5.0) * smoothstep(15.0, 30.0, vSpeed) * uCollisionIntensity * 2.0;
+        }
+        // Old massive fast particles: death explosion
+        if (vAge > 20.0 && vSpeed > 20.0 && vMass > 1.0) {
+            collisionGlow += smoothstep(20.0, 50.0, vSpeed) * uCollisionIntensity * 1.5;
+        }
+    }
+
+    gl_PointSize = basePx * (speedBoost + starGlow + snFlash + hyperspaceGlow + bhGlow + collisionGlow) * depthScale;
+    gl_PointSize = clamp(gl_PointSize, 0.5, 150.0);
 }
 `;

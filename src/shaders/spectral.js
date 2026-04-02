@@ -22,6 +22,12 @@ uniform float uARActive;
 uniform float uARSceneLuminance;
 uniform float uARSurfaceCoverage;
 
+// New cosmic phenomena
+uniform float uBlackHoleStrength;
+uniform float uQuantumBridgeStrength;
+uniform float uConglomerationStrength;
+uniform float uCollisionIntensity;
+
 // ─── CIE-approximate wavelength → visible RGB ──────────
 vec3 wavelengthToRGB(float wavelength) {
     float w = clamp(wavelength, 380.0, 780.0);
@@ -144,6 +150,122 @@ void main() {
     // ─── DEEP-INFRARED AFTERGLOW (old particles) ────
     float irGlow = smoothstep(40.0, 80.0, vAge) * (1.0 - speedNorm);
     color += vec3(0.4, 0.05, 0.0) * irGlow * 0.5;
+
+    // ─── BLACK HOLE PROXIMITY EFFECTS ───────────────
+    // Particles near black holes get extreme redshift, darkening,
+    // and accretion disk glow — spaghettification visual.
+    if (uBlackHoleStrength > 0.01) {
+        // Proximity estimation from velocity+gravity signature
+        float bhProximity = smoothstep(8.0, 45.0, vSpeed) * uBlackHoleStrength;
+
+        // Accretion disk glow: hot orange-white ring
+        float accretionGlow = bhProximity * smoothstep(15.0, 35.0, vSpeed);
+        vec3 accretionColor = mix(
+            vec3(1.0, 0.4, 0.1),
+            vec3(1.0, 0.95, 0.8),
+            smoothstep(25.0, 45.0, vSpeed)
+        );
+        color += accretionColor * accretionGlow * 1.8;
+
+        // Event horizon darkening: extreme-speed particles near core dim
+        float eventHorizonDim = smoothstep(40.0, 60.0, vSpeed) * uBlackHoleStrength * 0.6;
+        color *= 1.0 - eventHorizonDim;
+
+        // Gravitational redshift: shift toward deep red near singularity
+        float redshift = bhProximity * 0.4;
+        color = mix(color, color * vec3(1.2, 0.3, 0.1), redshift);
+
+        // Hawking radiation glow at event horizon boundary
+        float hawking = smoothstep(35.0, 42.0, vSpeed) * (1.0 - smoothstep(42.0, 50.0, vSpeed));
+        color += vec3(0.5, 0.7, 1.0) * hawking * uBlackHoleStrength * 0.8;
+    }
+
+    // ─── QUANTUM BRIDGE VISUAL ──────────────────────
+    // Subtle ethereal glow connecting entangled particle regions.
+    // Particles participating in bridges get a faint cyan-violet shimmer.
+    if (uQuantumBridgeStrength > 0.01) {
+        float bridgeNoise = snoise(vec3(
+            vDistFromCenter * 0.006 + uTime * 0.015,
+            vAge * 0.02,
+            vSpeed * 0.05
+        ));
+        float bridgeActive = smoothstep(0.1, 0.5, bridgeNoise) * uQuantumBridgeStrength;
+
+        // Oscillating entanglement glow
+        float entangleFlicker = sin(uTime * 2.3 + vDistFromCenter * 0.1 + vAge * 0.5) * 0.4 + 0.6;
+        vec3 bridgeColor = mix(
+            vec3(0.2, 0.8, 0.9),
+            vec3(0.6, 0.3, 1.0),
+            sin(uTime * 0.8 + vDistFromCenter * 0.03) * 0.5 + 0.5
+        );
+        color += bridgeColor * bridgeActive * entangleFlicker * 0.35;
+
+        // Very subtle filament brightening along bridge paths
+        float filamentGlow = pow(max(0.0, bridgeNoise), 4.0) * uQuantumBridgeStrength;
+        color += vec3(0.9, 0.95, 1.0) * filamentGlow * 0.3;
+    }
+
+    // ─── ENERGY CONGLOMERATION COLORING ─────────────
+    // Irregularly shaped dancing energy clusters: vibrant,
+    // iridescent, pulsating with chromatic intensity.
+    if (uConglomerationStrength > 0.01) {
+        float congNoise = snoise(vec3(
+            vDistFromCenter * 0.012 + uTime * 0.06,
+            vAge * 0.03 + uTime * 0.04,
+            vSpeed * 0.08
+        ));
+        float congActive = smoothstep(0.0, 0.6, congNoise) * uConglomerationStrength;
+
+        // Multi-hue dancing energy palette
+        float hueShift = uTime * 0.5 + vDistFromCenter * 0.03 + vAge * 0.1;
+        vec3 congColor = vec3(
+            sin(hueShift) * 0.5 + 0.5,
+            sin(hueShift + 2.094) * 0.5 + 0.5,
+            sin(hueShift + 4.189) * 0.5 + 0.5
+        );
+        // Boost saturation and brilliance
+        congColor = mix(vec3(dot(congColor, vec3(0.299, 0.587, 0.114))), congColor, 1.8);
+        congColor = clamp(congColor, 0.0, 1.0);
+
+        // Pulsating intensity — energy breathes
+        float pulse = sin(uTime * 0.3 + vDistFromCenter * 0.02) * 0.3 + 0.7;
+        color += congColor * congActive * pulse * 0.6;
+
+        // Electric crackling edges within conglomerations
+        float crackle = pow(max(0.0, snoise(vec3(
+            vDistFromCenter * 0.05 + uTime * 3.0,
+            vAge * 0.5 + uTime * 2.0,
+            vSpeed * 0.2
+        ))), 5.0) * congActive;
+        color += vec3(1.0, 0.9, 0.7) * crackle * 2.0;
+    }
+
+    // ─── COLLISION/EXPLOSION VISUALS ────────────────
+    // Birth explosions glow white-blue, death explosions glow red-orange.
+    if (uCollisionIntensity > 0.01) {
+        // Young particles in high-speed regions: birth flash
+        if (vAge < 5.0 && vSpeed > 15.0) {
+            float birthFlash = (1.0 - vAge / 5.0) * smoothstep(15.0, 30.0, vSpeed) * uCollisionIntensity;
+            color += vec3(0.7, 0.85, 1.0) * birthFlash * 2.0;
+            // Core white
+            float coreB = (1.0 - smoothstep(0.0, 0.15, d)) * birthFlash;
+            color += vec3(1.0) * coreB * 1.5;
+        }
+
+        // Old massive particles at high speed: death explosion
+        if (vAge > 20.0 && vSpeed > 20.0 && vMass > 1.0) {
+            float deathGlow = smoothstep(20.0, 50.0, vSpeed) * uCollisionIntensity;
+            vec3 deathColor = mix(
+                vec3(1.0, 0.3, 0.05),
+                vec3(1.0, 0.8, 0.2),
+                sin(uTime * 6.0 + vAge) * 0.5 + 0.5
+            );
+            color += deathColor * deathGlow * 1.5;
+            // Shockwave ring
+            float deathRing = smoothstep(0.25, 0.35, d) * (1.0 - smoothstep(0.35, 0.45, d));
+            color += vec3(1.0, 0.5, 0.8) * deathRing * deathGlow * 2.0;
+        }
+    }
 
     // ─── QUANTUM CHROMATIC IRIDESCENCE ─────────────
     // Particles shimmer with dimensional interference patterns

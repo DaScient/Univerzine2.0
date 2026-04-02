@@ -31,6 +31,20 @@ uniform float uStarFormationRate;
 // Quantum eccentricity
 uniform float uQuantumJitter;
 
+// Black holes
+uniform float uBlackHoleStrength;
+uniform float uNumBlackHoles;
+uniform float uBlackHoleSeed;
+
+// Quantum bridges
+uniform float uQuantumBridgeStrength;
+
+// Energy conglomerations
+uniform float uConglomerationStrength;
+
+// Collision dynamics
+uniform float uCollisionIntensity;
+
 // ─── AR Camera Flow / Surface Detection ─────────
 uniform sampler2D uFlowTexture;     // (flowX, flowY, surfaceConf, luminance) 64×64
 uniform float     uARActive;        // 0 or 1
@@ -240,6 +254,204 @@ void main() {
     float mouseFalloff = smoothstep(mouseRadius, 0.0, mouseDist);
     vec3 mouseForce = mouseDir * uMouseStrength * mouseFalloff * uMouseActive * 12.0;
 
+    // ─── BLACK HOLES ────────────────────────────────
+    // Gravitational singularities of varying sizes that
+    // warp space, capture nearby particles, and eject
+    // matter in relativistic jets along spin axes.
+    vec3 blackHoleForce = vec3(0.0);
+    if (uBlackHoleStrength > 0.01) {
+        for (int i = 0; i < 16; i++) {
+            if (float(i) >= uNumBlackHoles) break;
+            float fi = float(i);
+            vec3 bhSeed = hash31(fi * 173.7 + uBlackHoleSeed);
+            // Black hole positions drift slowly through space
+            float bhSpread = 60.0 + uPhase * 40.0;
+            vec3 bhCenter = (bhSeed - 0.5) * bhSpread * 2.0;
+            bhCenter += vec3(
+                sin(uTime * 0.03 + fi * 2.1),
+                cos(uTime * 0.025 + fi * 1.7),
+                sin(uTime * 0.02 + fi * 3.3)
+            ) * 15.0;
+
+            // Size categories: small (0-0.33), medium (0.33-0.66), large (0.66-1.0)
+            float sizeClass = hash11(fi * 59.3 + uBlackHoleSeed);
+            float bhMass = sizeClass < 0.33 ? 4.0 : (sizeClass < 0.66 ? 12.0 : 30.0);
+            float eventHorizon = sizeClass < 0.33 ? 3.0 : (sizeClass < 0.66 ? 8.0 : 18.0);
+
+            vec3 toBH = bhCenter - position;
+            float bhDist = length(toBH);
+            vec3 bhDir = bhDist > 0.01 ? toBH / bhDist : vec3(0.0);
+
+            // Extreme gravity near event horizon with inverse-square falloff
+            float bhGrav = bhMass * uBlackHoleStrength / (bhDist * bhDist + eventHorizon * 0.3);
+            float bhFalloff = smoothstep(eventHorizon * 12.0, 0.0, bhDist);
+
+            // Gravitational pull
+            vec3 bhPull = bhDir * bhGrav * bhFalloff;
+
+            // Accretion disk spin — particles spiral inward
+            if (bhDist < eventHorizon * 6.0) {
+                vec3 spinAxis = normalize(hash31(fi * 211.1 + uBlackHoleSeed) - 0.5);
+                vec3 tangent = normalize(cross(toBH, spinAxis));
+                float spiralSpeed = bhGrav * 0.6 * smoothstep(eventHorizon * 6.0, eventHorizon, bhDist);
+                bhPull += tangent * spiralSpeed;
+            }
+
+            // Relativistic jets — particles very near event horizon get
+            // blasted along the spin axis at extreme velocities
+            if (bhDist < eventHorizon * 1.5 && bhDist > eventHorizon * 0.3) {
+                vec3 jetAxis = normalize(hash31(fi * 211.1 + uBlackHoleSeed) - 0.5);
+                float jetSide = sign(dot(toBH, jetAxis));
+                float jetIntensity = (1.0 - bhDist / (eventHorizon * 1.5)) * bhMass * 2.0;
+                bhPull += jetAxis * jetSide * jetIntensity * uBlackHoleStrength;
+            }
+
+            blackHoleForce += bhPull;
+        }
+    }
+
+    // ─── QUANTUM BRIDGES ────────────────────────────
+    // Subtle entanglement links between dense regions create
+    // ephemeral filamentary connections — particles near high-density
+    // nodes feel a gentle pull toward the nearest connected node.
+    vec3 quantumBridgeForce = vec3(0.0);
+    if (uQuantumBridgeStrength > 0.01) {
+        // Create bridge nodes at noise-determined positions
+        vec3 bridgeCoord = position * 0.006 + uTime * 0.015;
+        float bridgeDensity = fbm(bridgeCoord, 3);
+
+        // Particles in moderately dense regions feel bridge pull
+        if (bridgeDensity > 0.1) {
+            // Find the direction toward the nearest bridge endpoint
+            vec3 bridgeTarget = vec3(
+                snoise(vec3(floor(bridgeCoord.x * 2.0) * 0.5, uTime * 0.02, 0.0)),
+                snoise(vec3(0.0, floor(bridgeCoord.y * 2.0) * 0.5, uTime * 0.02)),
+                snoise(vec3(uTime * 0.02, 0.0, floor(bridgeCoord.z * 2.0) * 0.5))
+            ) * 80.0;
+
+            vec3 toBridge = bridgeTarget - position;
+            float bridgeDist = length(toBridge);
+            vec3 bridgeDir = bridgeDist > 0.01 ? toBridge / bridgeDist : vec3(0.0);
+
+            // Gentle, ethereal pull — stronger in denser regions
+            float bridgePull = bridgeDensity * uQuantumBridgeStrength * 0.8;
+            bridgePull *= smoothstep(200.0, 0.0, bridgeDist);
+
+            // Oscillating connection strength (quantum flickering)
+            float flicker = sin(uTime * 2.3 + pid * 0.7) * 0.3 + 0.7;
+            quantumBridgeForce = bridgeDir * bridgePull * flicker;
+
+            // Add slight perpendicular drift for visual helicity
+            vec3 helical = cross(bridgeDir, vec3(0.0, 1.0, 0.0));
+            if (length(helical) > 0.01) {
+                helical = normalize(helical);
+                quantumBridgeForce += helical * bridgePull * 0.2 * sin(uTime * 4.0 + bridgeDist * 0.1);
+            }
+        }
+    }
+
+    // ─── ENERGY CONGLOMERATIONS ─────────────────────
+    // Irregularly shaped celestial formations of pure dancing
+    // energy — turbulent, vibrant clusters that attract and
+    // repel particles in chaotic but beautiful patterns.
+    vec3 conglomForce = vec3(0.0);
+    if (uConglomerationStrength > 0.01) {
+        // 4-6 major energy conglomerations with irregular shapes
+        for (int i = 0; i < 6; i++) {
+            float fi = float(i);
+            vec3 cSeed = hash31(fi * 337.7 + uGalaxySeed * 0.5);
+
+            // Conglomeration centers that dance and wander
+            vec3 cCenter = (cSeed - 0.5) * 200.0;
+            cCenter += vec3(
+                sin(uTime * 0.05 * (1.0 + fi * 0.3) + fi * 4.0) * 30.0,
+                cos(uTime * 0.04 * (1.0 + fi * 0.2) + fi * 2.5) * 25.0,
+                sin(uTime * 0.06 * (1.0 + fi * 0.4) + fi * 1.8) * 35.0
+            );
+
+            vec3 toCong = cCenter - position;
+            float cDist = length(toCong);
+            vec3 cDir = cDist > 0.01 ? toCong / cDist : vec3(0.0);
+
+            // Irregular shape via multi-octave noise deformation
+            float shapeNoise = fbm(vec3(
+                cDir.x * 3.0 + fi + uTime * 0.08,
+                cDir.y * 3.0 + fi * 2.0 + uTime * 0.06,
+                cDir.z * 3.0 + fi * 3.0 + uTime * 0.07
+            ), 3);
+            float irregularRadius = 25.0 + shapeNoise * 20.0;
+            float cFalloff = smoothstep(irregularRadius * 2.5, 0.0, cDist);
+
+            // Alternating attract/repel creates dancing energy
+            float breathe = sin(uTime * 0.3 + fi * 1.5) * 0.5 + 0.5;
+            float cMass = (3.0 + shapeNoise * 4.0) * uConglomerationStrength;
+
+            vec3 cPull = cDir * cMass * cFalloff * mix(-0.3, 1.0, breathe);
+
+            // Turbulent internal motion — swirling chaotic energy
+            if (cDist < irregularRadius * 1.5) {
+                vec3 chaosCoord = position * 0.04 + vec3(fi * 20.0) + uTime * 0.15;
+                vec3 chaos = vec3(
+                    snoise(chaosCoord),
+                    snoise(chaosCoord + vec3(70.0)),
+                    snoise(chaosCoord + vec3(140.0))
+                ) * cMass * cFalloff * 1.5;
+                cPull += chaos;
+            }
+
+            conglomForce += cPull;
+        }
+    }
+
+    // ─── COLLISION DYNAMICS ─────────────────────────
+    // Enhanced particle-particle interaction simulation.
+    // Particles near dense regions experience dramatic
+    // collision forces — births from compression, deaths from explosion.
+    vec3 collisionForce = vec3(0.0);
+    if (uCollisionIntensity > 0.01) {
+        // Local density estimation via noise field
+        vec3 denseCoord = position * 0.025 + uTime * 0.008;
+        float localDensity = fbm(denseCoord, 2);
+        float densityThreshold = 0.3;
+
+        if (localDensity > densityThreshold) {
+            // In dense regions: particles jostle and collide
+            float collisionStr = (localDensity - densityThreshold) * uCollisionIntensity * 5.0;
+
+            // Explosive birth: compression triggers outward burst (star birth)
+            float birthTrigger = snoise(vec3(pid * 0.005, uTime * 0.5, age * 0.05));
+            if (birthTrigger > 0.7 && age < 5.0) {
+                vec3 burstDir = normalize(vec3(
+                    snoise(vec3(pid, uTime * 3.0, 0.0)),
+                    snoise(vec3(0.0, pid, uTime * 3.0)),
+                    snoise(vec3(uTime * 3.0, 0.0, pid))
+                ));
+                collisionForce += burstDir * collisionStr * 8.0;
+            }
+
+            // Destruction: old massive particles in dense regions explode
+            if (age > 20.0 && mass > 1.0) {
+                float deathTrigger = snoise(vec3(pid * 0.003, uTime * 0.4, mass));
+                if (deathTrigger > 0.75) {
+                    vec3 explodeDir = normalize(vec3(
+                        snoise(vec3(pid * 1.1, uTime * 4.0, age)),
+                        snoise(vec3(age, pid * 1.1, uTime * 4.0)),
+                        snoise(vec3(uTime * 4.0, age, pid * 1.1))
+                    ));
+                    collisionForce += explodeDir * collisionStr * 12.0 * mass;
+                }
+            }
+
+            // General collision jitter in dense regions
+            vec3 jitterCoord = position * 0.1 + uTime * 0.8;
+            collisionForce += vec3(
+                snoise(jitterCoord),
+                snoise(jitterCoord + vec3(50.0)),
+                snoise(jitterCoord + vec3(100.0))
+            ) * collisionStr * 1.5;
+        }
+    }
+
     // ─── AR SURFACE-REACTIVE FORCE FIELD ────────────
     // Projects particle into screen-space UV, samples the flow
     // texture, and generates forces from detected surfaces.
@@ -320,6 +532,8 @@ void main() {
         velocity += turbulence   *  3.0  * uDeltaTime;
         velocity += vortex       * 20.0  * uDeltaTime;
         velocity += quantumForce *  2.0  * uDeltaTime;
+        velocity += quantumBridgeForce * 1.0 * uDeltaTime;
+        velocity += collisionForce * 0.5 * uDeltaTime;
         velocity *= 0.97;
 
     } else if (uPhase < 1.5) {
@@ -328,6 +542,8 @@ void main() {
         velocity += turbulence   *  1.5  * uDeltaTime;
         velocity += vortex       *  5.0  * uDeltaTime;
         velocity += quantumForce *  1.0  * uDeltaTime;
+        velocity += conglomForce *  0.5  * uDeltaTime;
+        velocity += collisionForce * 1.0 * uDeltaTime;
 
     } else if (uPhase < 2.5) {
         // ** COOLING ** — decelerate, grow filaments
@@ -338,6 +554,10 @@ void main() {
         velocity += filForce     *  1.5  * uDeltaTime;
         velocity += quantumForce *  0.5  * uDeltaTime;
         velocity += starFormForce * uDeltaTime;
+        velocity += blackHoleForce * 0.5 * uDeltaTime;
+        velocity += quantumBridgeForce * 0.8 * uDeltaTime;
+        velocity += conglomForce * 0.6 * uDeltaTime;
+        velocity += collisionForce * 0.8 * uDeltaTime;
         velocity *= 0.997;
 
     } else if (uPhase < 3.5) {
@@ -352,6 +572,10 @@ void main() {
         velocity += supernovaForce * uDeltaTime;
         velocity += quantumForce *  0.3  * uDeltaTime;
         velocity += turbulence   *  0.3  * uDeltaTime;
+        velocity += blackHoleForce * 1.0 * uDeltaTime;
+        velocity += quantumBridgeForce * 1.0 * uDeltaTime;
+        velocity += conglomForce * 1.0 * uDeltaTime;
+        velocity += collisionForce * 1.0 * uDeltaTime;
         velocity *= 0.998;
 
     } else if (uPhase < 4.5) {
@@ -364,6 +588,10 @@ void main() {
         velocity += starFormForce * 1.5  * uDeltaTime;
         velocity += supernovaForce * uDeltaTime;
         velocity += quantumForce *  0.2  * uDeltaTime;
+        velocity += blackHoleForce * 1.5 * uDeltaTime;
+        velocity += quantumBridgeForce * 0.8 * uDeltaTime;
+        velocity += conglomForce * 1.2 * uDeltaTime;
+        velocity += collisionForce * 1.2 * uDeltaTime;
         velocity *= 0.996;
 
     } else if (uPhase < 5.5) {
@@ -375,6 +603,10 @@ void main() {
         velocity += supernovaForce * 1.5 * uDeltaTime;
         velocity += quantumForce *  0.15 * uDeltaTime;
         velocity += turbulence   *  0.2  * uDeltaTime;
+        velocity += blackHoleForce * 2.0 * uDeltaTime;
+        velocity += quantumBridgeForce * 0.5 * uDeltaTime;
+        velocity += conglomForce * 1.0 * uDeltaTime;
+        velocity += collisionForce * 1.5 * uDeltaTime;
         velocity *= 0.997;
 
     } else if (uPhase < 6.5) {
@@ -385,12 +617,16 @@ void main() {
         velocity += vortex       *  1.5  * uDeltaTime;
         velocity += quantumForce *  0.8  * uDeltaTime;
         velocity += turbulence   *  0.5  * uDeltaTime;
+        velocity += blackHoleForce * 2.5 * uDeltaTime;
+        velocity += conglomForce * 0.6 * uDeltaTime;
+        velocity += collisionForce * 2.0 * uDeltaTime;
         velocity *= 0.995;
 
     } else {
         // ** HEAT DEATH ** — everything dissipates
         velocity += expansion    *  0.02 * uDeltaTime;
         velocity += quantumForce *  0.05 * uDeltaTime;
+        velocity += blackHoleForce * 1.0 * uDeltaTime;
         velocity *= 0.99;
     }
 

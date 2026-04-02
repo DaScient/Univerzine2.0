@@ -105,7 +105,7 @@ controls.dampingFactor   = 0.04;
 controls.minDistance      = 10;
 controls.maxDistance      = 800;
 controls.autoRotate      = true;
-controls.autoRotateSpeed = 0.15;
+controls.autoRotateSpeed = 0.08;
 
 // ───────────────────────────────────────────────────────
 // Background star field (static ambient depth cue)
@@ -251,6 +251,9 @@ posU.uDeltaTime     = { value: 0 };
 posU.uPhase         = { value: 0 };
 posU.uTime          = { value: 0 };
 posU.uTimeDilation  = { value: 1.0 };
+posU.uBlackHoleStrength = { value: 0 };
+posU.uNumBlackHoles     = { value: 0 };
+posU.uBlackHoleSeed     = { value: 0 };
 
 // Velocity shader uniforms
 const velU = velocityVariable.material.uniforms;
@@ -277,6 +280,20 @@ velU.uStarFormationRate  = { value: 0 };
 
 // Quantum eccentricity
 velU.uQuantumJitter      = { value: 0 };
+
+// Black holes
+velU.uBlackHoleStrength  = { value: 0 };
+velU.uNumBlackHoles      = { value: 0 };
+velU.uBlackHoleSeed      = { value: 0 };
+
+// Quantum bridges
+velU.uQuantumBridgeStrength = { value: 0 };
+
+// Energy conglomerations
+velU.uConglomerationStrength = { value: 0 };
+
+// Collision dynamics
+velU.uCollisionIntensity = { value: 0 };
 
 // AR Camera Flow / Surface Detection
 velU.uFlowTexture   = { value: null };
@@ -321,6 +338,10 @@ const particleMat = new THREE.ShaderMaterial({
         uSupernovaIntensity: { value: 0 },
         uStarFormationRate:  { value: 0 },
         uHyperspaceWarp:     { value: 0 },
+        uBlackHoleStrength:  { value: 0 },
+        uCollisionIntensity: { value: 0 },
+        uQuantumBridgeStrength: { value: 0 },
+        uConglomerationStrength: { value: 0 },
         // AR camera integration
         uARActive:           { value: 0 },
         uARSceneLuminance:   { value: 0 },
@@ -547,10 +568,11 @@ function animate() {
 
     // ─── Quantum time dilation ───
     // Simulation emerges slowly from the void with quantum fluctuations
-    const simRamp = Math.min(1.0, elapsed * 0.06);
-    const quantumPulse = Math.sin(elapsed * 0.7) * Math.cos(elapsed * 1.3) * Math.sin(elapsed * 0.41);
-    const timeDilation = 0.12 + simRamp * 0.88 + quantumPulse * 0.15 * (1.0 - simRamp * 0.5);
-    const dilatedDt = dt * Math.max(0.05, timeDilation);
+    // Slowed down for extended, cinematic cosmic evolution
+    const simRamp = Math.min(1.0, elapsed * 0.03);
+    const quantumPulse = Math.sin(elapsed * 0.4) * Math.cos(elapsed * 0.8) * Math.sin(elapsed * 0.25);
+    const timeDilation = 0.08 + simRamp * 0.62 + quantumPulse * 0.1 * (1.0 - simRamp * 0.5);
+    const dilatedDt = dt * Math.max(0.03, timeDilation);
 
     elapsed += dilatedDt;
 
@@ -580,6 +602,23 @@ function animate() {
     velU.uSupernovaIntensity.value = bangCtrl.supernovaIntensity;
     velU.uStarFormationRate.value  = bangCtrl.starFormationRate;
     velU.uQuantumJitter.value      = bangCtrl.quantumJitter;
+
+    // Black holes
+    velU.uBlackHoleStrength.value  = bangCtrl.blackHoleStrength;
+    velU.uNumBlackHoles.value      = isMobile ? Math.min(bangCtrl.numBlackHoles, 8) : bangCtrl.numBlackHoles;
+    velU.uBlackHoleSeed.value      = bangCtrl.blackHoleSeed;
+    posU.uBlackHoleStrength.value  = bangCtrl.blackHoleStrength;
+    posU.uNumBlackHoles.value      = isMobile ? Math.min(bangCtrl.numBlackHoles, 8) : bangCtrl.numBlackHoles;
+    posU.uBlackHoleSeed.value      = bangCtrl.blackHoleSeed;
+
+    // Quantum bridges
+    velU.uQuantumBridgeStrength.value = bangCtrl.quantumBridgeStrength;
+
+    // Energy conglomerations
+    velU.uConglomerationStrength.value = bangCtrl.conglomerationStrength;
+
+    // Collision dynamics
+    velU.uCollisionIntensity.value = bangCtrl.collisionIntensity;
 
     // Sensors → GPU (gyro smoothed, audio from procedural source — non-echo)
     velU.uGyro.value.set(sensors.gyro.x, sensors.gyro.y, sensors.gyro.z);
@@ -664,6 +703,10 @@ function animate() {
     particleMat.uniforms.uPhase.value              = bangCtrl.phase;
     particleMat.uniforms.uSupernovaIntensity.value = bangCtrl.supernovaIntensity;
     particleMat.uniforms.uStarFormationRate.value   = bangCtrl.starFormationRate;
+    particleMat.uniforms.uBlackHoleStrength.value   = bangCtrl.blackHoleStrength;
+    particleMat.uniforms.uCollisionIntensity.value  = bangCtrl.collisionIntensity;
+    particleMat.uniforms.uQuantumBridgeStrength.value = bangCtrl.quantumBridgeStrength;
+    particleMat.uniforms.uConglomerationStrength.value = bangCtrl.conglomerationStrength;
 
     // Hyperspace warp intensity — builds during expansion, fades at heat death
     const hyperspaceBase = smoothstep01(bangCtrl.phase, 0, 2) * (1.0 - smoothstep01(bangCtrl.phase, 6, 7.5));
