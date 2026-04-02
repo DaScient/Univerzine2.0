@@ -1,6 +1,6 @@
 // Particle Fragment Shader — Hyperspectral colour mapping.
-// Enhanced with electric plasma, supernova flashes, galaxy arm coloring.
-// Imports noise so it works as a plain ES module in browser and Vite.
+// Enhanced with quantum chromatic iridescence, hyperspace dimensional
+// rift coloring, and multiverse spectral interference.
 import noise from './noise.js';
 
 export default noise + /* glsl */`
@@ -15,6 +15,7 @@ uniform float uTemperature;
 uniform float uPhase;
 uniform float uSupernovaIntensity;
 uniform float uStarFormationRate;
+uniform float uHyperspaceWarp;
 
 // AR camera integration
 uniform float uARActive;
@@ -144,10 +145,50 @@ void main() {
     float irGlow = smoothstep(40.0, 80.0, vAge) * (1.0 - speedNorm);
     color += vec3(0.4, 0.05, 0.0) * irGlow * 0.5;
 
+    // ─── QUANTUM CHROMATIC IRIDESCENCE ─────────────
+    // Particles shimmer with dimensional interference patterns
+    // that shift based on viewing angle (approximated by distance)
+    float iriPhase = vDistFromCenter * 0.03 + vSpeed * 0.08 + uTime * 0.7;
+    vec3 quantumIri = vec3(
+        sin(iriPhase) * 0.5 + 0.5,
+        sin(iriPhase + 2.094) * 0.5 + 0.5,
+        sin(iriPhase + 4.189) * 0.5 + 0.5
+    );
+    float iriIntensity = smoothstep(0.0, 1.0, uHyperspaceWarp) * 0.2;
+    color = mix(color, color + quantumIri * 0.6, iriIntensity);
+
+    // ─── HYPERSPACE DIMENSIONAL RIFT GLOW ───────────
+    // At dimensional fold points, particles gain an ethereal
+    // ultra-violet / deep-blue corona from energy leaking
+    // between universes in the multiverse stack.
+    float riftNoise = snoise(vec3(
+        vDistFromCenter * 0.015 + uTime * 0.08,
+        vAge * 0.02,
+        vSpeed * 0.1 + uTime * 0.05
+    ));
+    float riftIntensity = smoothstep(0.3, 0.8, riftNoise) * uHyperspaceWarp;
+    vec3 riftColor = mix(
+        vec3(0.15, 0.1, 0.6),
+        vec3(0.6, 0.2, 0.9),
+        sin(uTime * 0.3 + vDistFromCenter * 0.02) * 0.5 + 0.5
+    );
+    color += riftColor * riftIntensity * 0.5;
+
+    // ─── MULTIVERSE SPECTRAL BLEED ─────────────────
+    // Overlapping universe boundaries create spectral
+    // interference fringes — thin bands of shifted color.
+    float fringePattern = sin(vDistFromCenter * 0.1 + vSpeed * 0.3 + uTime * 1.5);
+    float fringeIntensity = smoothstep(0.85, 1.0, abs(fringePattern)) * uHyperspaceWarp * 0.35;
+    vec3 fringeColor = wavelengthToRGB(mix(420.0, 680.0, fringePattern * 0.5 + 0.5));
+    color += fringeColor * fringeIntensity;
+
     // ─── HEAT DEATH DIMMING ─────────────────────────
     if (uPhase > 6.5) {
         float deathFade = (uPhase - 6.5) * 2.0;
-        color *= max(0.02, 1.0 - deathFade * 0.95);
+        // Keep a faint residual glow even at heat death for visual appeal
+        color *= max(0.04, 1.0 - deathFade * 0.92);
+        // Shift remaining particles toward deep violet at heat death
+        color = mix(color, vec3(0.08, 0.02, 0.15), deathFade * 0.3);
     }
 
     // ─── AR CAMERA LUMINANCE-REACTIVE COLORING ──────

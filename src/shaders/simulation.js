@@ -1,5 +1,5 @@
 // Particle Vertex Shader — reads GPGPU position/velocity textures.
-// Enhanced with supernova flash sizing and star formation glow.
+// Enhanced with hyperspace dimensional warping and quantum displacement.
 export default /* glsl */`
 uniform sampler2D uPositionTexture;
 uniform sampler2D uVelocityTexture;
@@ -8,6 +8,7 @@ uniform float uPointSize;
 uniform float uTime;
 uniform float uSupernovaIntensity;
 uniform float uStarFormationRate;
+uniform float uHyperspaceWarp;
 
 varying float vSpeed;
 varying float vAge;
@@ -27,6 +28,19 @@ void main() {
     vDistFromCenter = length(pos);
     vMass           = velData.w;
 
+    // ─── Hyperspace dimensional warping ─────────────
+    // Particles bend through space-time, creating visible
+    // distortions that emulate higher-dimensional traversal.
+    float warpScale = uHyperspaceWarp * smoothstep(0.0, 60.0, vDistFromCenter);
+    pos.x += sin(pos.y * 0.02 + pos.z * 0.015 + uTime * 0.4) * warpScale * 3.5;
+    pos.y += cos(pos.x * 0.018 + pos.z * 0.02 + uTime * 0.35) * warpScale * 3.0;
+    pos.z += sin(pos.x * 0.015 + pos.y * 0.022 + uTime * 0.3) * warpScale * 2.5;
+
+    // ─── Quantum fluctuation micro-displacement ─────
+    float quantumDisp = sin(vAge * 2.0 + vSpeed * 0.5 + uTime * 3.0) * 0.35;
+    vec3 posNorm = length(pos) > 0.001 ? normalize(pos) : vec3(0.0, 1.0, 0.0);
+    pos += posNorm * quantumDisp;
+
     vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
     gl_Position = projectionMatrix * mvPosition;
 
@@ -44,7 +58,10 @@ void main() {
         snFlash = (vSpeed - 30.0) / 30.0 * uSupernovaIntensity * 3.0;
     }
 
-    gl_PointSize = basePx * (speedBoost + starGlow + snFlash) * depthScale;
+    // Hyperspace proximity glow — particles near dimensional folds grow
+    float hyperspaceGlow = abs(sin(pos.x * 0.01 + pos.y * 0.012 + uTime * 0.2)) * uHyperspaceWarp * 0.6;
+
+    gl_PointSize = basePx * (speedBoost + starGlow + snFlash + hyperspaceGlow) * depthScale;
     gl_PointSize = clamp(gl_PointSize, 0.5, 120.0);
 }
 `;

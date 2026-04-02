@@ -62,16 +62,12 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.setClearColor(0x000000, 1);               // opaque black by default; AR toggles to alpha=0
 
 if (!renderer.capabilities.isWebGL2) {
-    document.getElementById('overlay').innerHTML =
-        '<div style="text-align:center;padding:2em;color:#f44">' +
-        '<h2>WebGL 2 Required</h2><p>Your browser does not support WebGL 2.</p></div>';
     throw new Error('WebGL 2 not available');
 }
 
 // WebGL context loss / recovery
 canvas.addEventListener('webglcontextlost', (e) => {
     e.preventDefault();
-    document.getElementById('phase-label').textContent = 'CONTEXT LOST — RECOVERING…';
 }, false);
 
 canvas.addEventListener('webglcontextrestored', () => {
@@ -251,9 +247,10 @@ gpuCompute.setVariableDependencies(velocityVariable, [positionVariable, velocity
 
 // Position shader uniforms
 const posU = positionVariable.material.uniforms;
-posU.uDeltaTime = { value: 0 };
-posU.uPhase     = { value: 0 };
-posU.uTime      = { value: 0 };
+posU.uDeltaTime     = { value: 0 };
+posU.uPhase         = { value: 0 };
+posU.uTime          = { value: 0 };
+posU.uTimeDilation  = { value: 1.0 };
 
 // Velocity shader uniforms
 const velU = velocityVariable.material.uniforms;
@@ -323,6 +320,7 @@ const particleMat = new THREE.ShaderMaterial({
         uPhase:              { value: 0 },
         uSupernovaIntensity: { value: 0 },
         uStarFormationRate:  { value: 0 },
+        uHyperspaceWarp:     { value: 0 },
         // AR camera integration
         uARActive:           { value: 0 },
         uARSceneLuminance:   { value: 0 },
@@ -351,8 +349,8 @@ const bloomPass = new UnrealBloomPass(
         window.innerHeight * bloomResScale
     ),
     1.8,    // strength
-    0.6,    // radius
-    0.05,   // threshold
+    0.8,    // radius
+    0.03,   // threshold
 );
 composer.addPass(bloomPass);
 
@@ -422,29 +420,12 @@ function applyQualityLevel() {
 // UI
 // ═══════════════════════════════════════════════════════
 const overlay    = document.getElementById('overlay');
-const hud        = document.getElementById('hud');
-const phaseLabel = document.getElementById('phase-label');
-const statsEl    = document.getElementById('stats');
-const errorToast = document.getElementById('ar-error-toast');
-const errorText  = document.getElementById('ar-error-text');
-
-function showARError(message) {
-    if (message && errorToast) {
-        errorText.textContent = message;
-        errorToast.classList.remove('hidden');
-        // Auto-hide after 4 seconds
-        setTimeout(() => {
-            errorToast.classList.add('hidden');
-        }, 4000);
-    }
-}
 
 function startSimulation() {
     sensors.init();
     cosmicAudio.init();
     bangCtrl.start();
     overlay.classList.add('hidden');
-    hud.classList.add('visible');
     sensors.pulseHaptic(50);
     clock.start();
     // Show AR camera button if device supports getUserMedia
@@ -464,12 +445,10 @@ function restartSimulation() {
     sensors.pulseHaptic(50);
 }
 
-document.getElementById('start-btn').addEventListener('click', startSimulation);
-
-// Auto-play: auto-start after brief title display
+// Auto-start: emerge from the void
 setTimeout(() => {
     if (!bangCtrl.started) startSimulation();
-}, 2500);
+}, 800);
 
 // AR camera toggle button
 const arBtn = document.getElementById('ar-toggle');
@@ -477,20 +456,14 @@ if (arBtn) {
     arBtn.addEventListener('click', async () => {
         const active = await cameraAR.toggle(renderer);
         arBtn.classList.toggle('active', active);
-        arBtn.textContent = active ? 'AR ON' : 'AR';
         if (!active) {
             cameraFlow.reset();
-            // Show error message if there was a failure
-            const errMsg = cameraAR.getErrorMessage();
-            if (errMsg) showARError(errMsg);
         }
     });
 }
 
 // Fly camera toggle button
 const flyBtn = document.getElementById('fly-toggle');
-const flyHud = document.getElementById('fly-hud');
-const flySpeedEl = document.getElementById('fly-speed');
 let flyModeActive = false;
 
 function toggleFlyMode() {
@@ -499,15 +472,11 @@ function toggleFlyMode() {
         flyCamera.enable();
         controls.enabled = false;
         flyBtn?.classList.add('active');
-        flyBtn.textContent = 'FLY ON';
-        flyHud?.classList.remove('hidden');
     } else {
         flyCamera.disable();
         controls.enabled = true;
         controls.autoRotate = !sensors.hasGyro;
         flyBtn?.classList.remove('active');
-        flyBtn.textContent = 'FLY';
-        flyHud?.classList.add('hidden');
     }
 }
 
@@ -565,26 +534,41 @@ function toggleFullscreen() {
 const clock = new THREE.Clock(false);
 let elapsed = 0;
 
+// Smooth interpolation helper
+function smoothstep01(x, edge0, edge1) {
+    const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+    return t * t * (3 - 2 * t);
+}
+
 function animate() {
     requestAnimationFrame(animate);
 
     const dt = Math.min(clock.getDelta(), 0.05);       // cap spikes
-    elapsed += dt;
+
+    // ─── Quantum time dilation ───
+    // Simulation emerges slowly from the void with quantum fluctuations
+    const simRamp = Math.min(1.0, elapsed * 0.06);
+    const quantumPulse = Math.sin(elapsed * 0.7) * Math.cos(elapsed * 1.3) * Math.sin(elapsed * 0.41);
+    const timeDilation = 0.12 + simRamp * 0.88 + quantumPulse * 0.15 * (1.0 - simRamp * 0.5);
+    const dilatedDt = dt * Math.max(0.05, timeDilation);
+
+    elapsed += dilatedDt;
 
     // ─── FPS + Adaptive Quality ───
     updateFPS(dt);
 
-    // ─── Update controllers ───
-    bangCtrl.update(dt);
+    // ─── Update controllers (with dilated time) ───
+    bangCtrl.update(dilatedDt);
     sensors.update(dt);
 
     // ─── Push state into GPGPU uniforms ───
-    posU.uDeltaTime.value = dt;
-    posU.uPhase.value     = bangCtrl.phase;
-    posU.uTime.value      = elapsed;
+    posU.uDeltaTime.value     = dilatedDt;
+    posU.uPhase.value         = bangCtrl.phase;
+    posU.uTime.value          = elapsed;
+    posU.uTimeDilation.value  = Math.max(0.0, timeDilation);
 
     velU.uTime.value            = elapsed;
-    velU.uDeltaTime.value       = dt;
+    velU.uDeltaTime.value       = dilatedDt;
     velU.uExpansionRate.value   = bangCtrl.expansionRate;
     velU.uTemperature.value     = bangCtrl.temperature;
     velU.uGravityStrength.value = bangCtrl.gravityStrength;
@@ -622,12 +606,7 @@ function animate() {
     // ─── CAMERA CHOREOGRAPHY ───
     // Fly mode takes priority over all other camera controls
     if (flyModeActive) {
-        flyCamera.update(delta);
-        // Update fly speed HUD
-        if (flySpeedEl) {
-            const speed = flyCamera.getSpeed();
-            flySpeedEl.textContent = `SPEED: ${speed.toFixed(1)}`;
-        }
+        flyCamera.update(dilatedDt);
     } else if (sensors.hasGyro) {
         // Mobile — full gyroscopic 3-axis camera with smooth damping
         controls.autoRotate = false;
@@ -686,6 +665,11 @@ function animate() {
     particleMat.uniforms.uSupernovaIntensity.value = bangCtrl.supernovaIntensity;
     particleMat.uniforms.uStarFormationRate.value   = bangCtrl.starFormationRate;
 
+    // Hyperspace warp intensity — builds during expansion, fades at heat death
+    const hyperspaceBase = smoothstep01(bangCtrl.phase, 0, 2) * (1.0 - smoothstep01(bangCtrl.phase, 6, 7.5));
+    const hyperspaceWarp = hyperspaceBase * (0.7 + Math.sin(elapsed * 0.5) * 0.3);
+    particleMat.uniforms.uHyperspaceWarp.value = hyperspaceWarp;
+
     // AR camera metrics → spectral shader
     particleMat.uniforms.uARActive.value          = arOn;
     particleMat.uniforms.uARSceneLuminance.value  = cameraFlow.sceneLuminance;
@@ -698,8 +682,8 @@ function animate() {
     cosmicAudio.update(bangCtrl.phase, bangCtrl.temperature, bangCtrl.time);
 
     // ─── Post-processing dynamics ───
-    const bloomTarget = 0.8 + Math.min(bangCtrl.temperature / 1e10, 1.5);
-    bloomPass.strength += (bloomTarget - bloomPass.strength) * 0.05; // smooth bloom
+    const bloomTarget = 1.0 + Math.min(bangCtrl.temperature / 1e10, 2.0);
+    bloomPass.strength += (bloomTarget - bloomPass.strength) * 0.04; // smooth bloom
     if (grainPass) {
         grainPass.uniforms.uTime.value = elapsed;
         grainPass.uniforms.uIntensity.value = bangCtrl.phase < 2 ? 0.08 : 0.04;
@@ -711,23 +695,6 @@ function animate() {
 
     controls.update();
     composer.render();
-
-    // ─── HUD ───
-    phaseLabel.textContent = bangCtrl.phaseName;
-    const sensorIcons =
-        (flyModeActive     ? ' · FLY'    : '') +
-        (sensors.hasGyro   ? ' · GYRO'   : '') +
-        (sensors.hasMotion ? ' · ACCEL'   : '') +
-        (sensors.hasAudio  ? ' · AUDIO'   : '') +
-        (cameraAR.active   ? ' · CAM'    : '') +
-        (cameraFlow.active ? ' · FLOW'   : '') +
-        (mouseField.active ? ' · TOUCH'   : '');
-    statsEl.textContent =
-        `${(PARTICLE_COUNT / 1e6).toFixed(2)}M particles · ` +
-        `T = ${bangCtrl.temperature.toExponential(1)} K · ` +
-        `${fpsValue} FPS` +
-        (bangCtrl.cycleCount > 0 ? ` · CYCLE ${bangCtrl.cycleCount + 1}` : '') +
-        sensorIcons;
 }
 
 animate();
