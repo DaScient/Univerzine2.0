@@ -5,21 +5,14 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Write permission allows the action to git-push the dist
+# output to the gh-pages branch without any Pages API calls.
 permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: true
+  contents: write
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -31,11 +24,11 @@ jobs:
       - run: npm ci
       - run: npm run build
 
-      - uses: actions/configure-pages@v4
-
-      - uses: actions/upload-pages-artifact@v3
+      # Pushes dist/ to the gh-pages branch.
+      # Set Pages source to "gh-pages branch" in repo Settings → Pages.
+      - name: Deploy
+        uses: JamesIves/github-pages-deploy-action@v4
         with:
-          path: dist
-
-      - id: deployment
-        uses: actions/deploy-pages@v4
+          folder: dist
+          branch: gh-pages
+          clean: true

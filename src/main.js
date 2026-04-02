@@ -17,14 +17,12 @@ import { CosmicAudio }       from './components/CosmicAudio.js';
 import { MouseField }        from './components/MouseField.js';
 import { createGrainPass }   from './components/GrainPass.js';
 
-// Shader sources (imported as raw strings via Vite)
-import noiseGlsl           from './shaders/noise.glsl?raw';
-import gpgpuPositionFrag   from './shaders/gpgpu-position.frag?raw';
-import gpgpuVelocityFrag   from './shaders/gpgpu-velocity.frag?raw';
-import simulationVert      from './shaders/simulation.vert?raw';
-import spectralFrag        from './shaders/spectral.frag?raw';
-
-import './style.css';
+// Shader sources — plain ES modules, work in both raw-browser and Vite.
+import gpgpuPositionShader from './shaders/gpgpu-position.js';
+import gpgpuVelocityShader from './shaders/gpgpu-velocity.js'; // noise pre-included
+import particleVert        from './shaders/simulation.js';
+import particleFrag        from './shaders/spectral.js';        // noise pre-included
+// CSS is now loaded via <link> in index.html — no JS import needed.
 
 // ───────────────────────────────────────────────────────
 // Configuration
@@ -219,14 +217,11 @@ function fillSingularitySeed() {
 }
 fillSingularitySeed();
 
-// Prepend noise library to shaders that need it
-const velocityShaderFull = noiseGlsl + '\n' + gpgpuVelocityFrag;
-
 const positionVariable = gpuCompute.addVariable(
-    'texturePosition', gpgpuPositionFrag, dtPosition,
+    'texturePosition', gpgpuPositionShader, dtPosition,
 );
 const velocityVariable = gpuCompute.addVariable(
-    'textureVelocity', velocityShaderFull, dtVelocity,
+    'textureVelocity', gpgpuVelocityShader, dtVelocity,
 );
 
 gpuCompute.setVariableDependencies(positionVariable, [positionVariable, velocityVariable]);
@@ -276,8 +271,8 @@ for (let i = 0; i < PARTICLE_COUNT; i++) {
 particleGeo.setAttribute('position', new THREE.BufferAttribute(refs, 3));
 
 const particleMat = new THREE.ShaderMaterial({
-    vertexShader:   simulationVert,
-    fragmentShader: noiseGlsl + '\n' + spectralFrag,
+    vertexShader:   particleVert,
+    fragmentShader: particleFrag,
     uniforms: {
         uPositionTexture: { value: null },
         uVelocityTexture: { value: null },
