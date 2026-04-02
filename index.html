@@ -15,7 +15,7 @@
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://DaScient.github.io/Univerzine2.0/" />
 
-  <title>Univerzine — Quantum Big Bang</title>
+  <title>Univerzine</title>
 
   <!-- Inline SVG favicon — no external file needed, eliminates the favicon 404 -->
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='48' fill='%23000'/%3E%3Ccircle cx='50' cy='50' r='7' fill='%23ef5350'/%3E%3Ccircle cx='50' cy='50' r='22' fill='none' stroke='%23ce93d8' stroke-width='2'/%3E%3Ccircle cx='50' cy='50' r='38' fill='none' stroke='%234fc3f7' stroke-width='1.5' opacity='0.6'/%3E%3C/svg%3E">
@@ -41,31 +41,24 @@
     }
   }
   </script>
-  <script type="module" crossorigin src="/Univerzine2.0/assets/index-DRxbJOE-.js"></script>
-  <link rel="stylesheet" crossorigin href="/Univerzine2.0/assets/index-zpbXvYYZ.css">
+  <script type="module" crossorigin src="/Univerzine2.0/assets/index-D4Qg3Xps.js"></script>
+  <link rel="stylesheet" crossorigin href="/Univerzine2.0/assets/index-C_2z928I.css">
 </head>
 <body>
-  <div id="overlay">
-    <div class="overlay-content">
-      <h1>UNIVERZINE</h1>
-      <p class="subtitle">Quantum Big Bang Simulation</p>
-      <button id="start-btn">GENESIS</button>
-      <p class="hint">WebGL 2.0 · GPGPU Particle Engine · Gyro-Enabled · 1M+ Particles</p>
-    </div>
-  </div>
+  <div id="overlay"></div>
   <div id="ar-error-toast" class="ar-error hidden">
-    <span id="ar-error-text">Camera access denied</span>
+    <span id="ar-error-text"></span>
   </div>
   <div id="hud">
-    <div id="phase-label">SINGULARITY</div>
+    <div id="phase-label"></div>
     <div id="stats"></div>
   </div>
-  <div id="restart-hint">R = RESTART · F = FULLSCREEN · C = CAMERA AR · V = FLY MODE</div>
-  <button id="ar-toggle" title="Toggle Camera AR (C)">AR</button>
-  <button id="fly-toggle" title="Toggle Fly Mode (V)">FLY</button>
+  <div id="restart-hint"></div>
+  <button id="ar-toggle" aria-label="AR"></button>
+  <button id="fly-toggle" aria-label="Fly"></button>
   <div id="fly-hud" class="fly-hud hidden">
-    <div id="fly-speed">SPEED: 0</div>
-    <div id="fly-controls">DRAG: LOOK · WASD/ARROWS: MOVE · Q/E: UP/DOWN · SPACE: BOOST</div>
+    <div id="fly-speed"></div>
+    <div id="fly-controls"></div>
   </div>
   <canvas id="canvas"></canvas>
 
