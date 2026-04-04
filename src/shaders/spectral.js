@@ -231,12 +231,8 @@ void main() {
         float pulse = sin(uTime * 0.3 + vDistFromCenter * 0.02) * 0.3 + 0.7;
         color += congColor * congActive * pulse * 0.6;
 
-        // Electric crackling edges within conglomerations
-        float crackle = pow(max(0.0, snoise(vec3(
-            vDistFromCenter * 0.05 + uTime * 3.0,
-            vAge * 0.5 + uTime * 2.0,
-            vSpeed * 0.2
-        ))), 5.0) * congActive;
+        // Electric crackling edges within conglomerations (reuse congNoise)
+        float crackle = pow(max(0.0, congNoise), 5.0) * congActive;
         color += vec3(1.0, 0.9, 0.7) * crackle * 2.0;
     }
 
@@ -280,15 +276,9 @@ void main() {
     color = mix(color, color + quantumIri * 0.6, iriIntensity);
 
     // ─── HYPERSPACE DIMENSIONAL RIFT GLOW ───────────
-    // At dimensional fold points, particles gain an ethereal
-    // ultra-violet / deep-blue corona from energy leaking
-    // between universes in the multiverse stack.
-    float riftNoise = snoise(vec3(
-        vDistFromCenter * 0.015 + uTime * 0.08,
-        vAge * 0.02,
-        vSpeed * 0.1 + uTime * 0.05
-    ));
-    float riftIntensity = smoothstep(0.3, 0.8, riftNoise) * uHyperspaceWarp;
+    // Reuse CMB noise pattern for dimensional rift (avoids extra snoise call)
+    float riftNoise = cmb * 0.5 + 0.5; // remap [-1,1] to [0,1]
+    float riftIntensity = smoothstep(0.5, 0.9, riftNoise) * uHyperspaceWarp;
     vec3 riftColor = mix(
         vec3(0.15, 0.1, 0.6),
         vec3(0.6, 0.2, 0.9),

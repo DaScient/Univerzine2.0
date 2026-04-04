@@ -111,7 +111,7 @@ void main() {
 
     // ─── FILAMENT FORMATION (anisotropic structure) ─
     vec3 filCoord = position * 0.008 + uTime * 0.003;
-    float filament = fbm(filCoord, 3);   // 3 octaves — saves GPU ALU
+    float filament = fbm(filCoord, 2);   // 2 octaves — saves GPU ALU
     vec3 filForce = vec3(
         snoise(filCoord + vec3(200.0)),
         snoise(filCoord + vec3(300.0)),
@@ -122,10 +122,10 @@ void main() {
     // Procedural galaxy centers with varied morphology:
     //   spiral, elliptical, irregular, barred spiral
     vec3 galaxyForce = vec3(0.0);
-    if (uPhase >= 2.5) {
+    if (uPhase >= 2.5 && uNumGalaxies > 0.0) {
         float galaxySpread = 80.0 + uPhase * 30.0;
 
-        for (int i = 0; i < 16; i++) {
+        for (int i = 0; i < 8; i++) {
             if (float(i) >= uNumGalaxies) break;
 
             float fi = float(i);
@@ -163,13 +163,9 @@ void main() {
                 force += axis * compression * gAttract * falloff * 0.5;
 
             } else if (gType < 0.75) {
-                // IRREGULAR GALAXY — chaotic noise perturbation
-                vec3 chaosCoord = position * 0.02 + vec3(fi * 10.0) + uTime * 0.05;
-                vec3 chaos = vec3(
-                    snoise(chaosCoord),
-                    snoise(chaosCoord + vec3(50.0)),
-                    snoise(chaosCoord + vec3(100.0))
-                ) * gMass * falloff * 0.4;
+                // IRREGULAR GALAXY — hash-based chaotic perturbation (cheaper than noise)
+                vec3 chaos = (hash31(fi * 17.3 + dot(position, vec3(0.02))) - 0.5) * 2.0
+                           * gMass * falloff * 0.4;
                 force += chaos;
 
             } else {
@@ -194,11 +190,7 @@ void main() {
 
         if (snNoise > snThreshold && mass > 1.2) {
             float intensity = (snNoise - snThreshold) * 20.0 * uSupernovaIntensity;
-            vec3 explosionDir = normalize(vec3(
-                snoise(vec3(pid, uTime * 2.0, 0.0)),
-                snoise(vec3(0.0, pid, uTime * 2.0)),
-                snoise(vec3(uTime * 2.0, 0.0, pid))
-            ));
+            vec3 explosionDir = normalize(hash31(pid + uTime * 47.1) - 0.5);
             supernovaForce = explosionDir * intensity;
         }
     }
@@ -207,13 +199,13 @@ void main() {
     vec3 starFormForce = vec3(0.0);
     if (uStarFormationRate > 0.01) {
         vec3 densityCoord = position * 0.02 + uTime * 0.01;
-        float density = fbm(densityCoord, 2);
+        float density = snoise(densityCoord) * 0.5 + 0.25;
         if (density > 0.2) {
-            vec3 densityGrad = vec3(
-                snoise(densityCoord + vec3(0.01, 0.0, 0.0)) - snoise(densityCoord - vec3(0.01, 0.0, 0.0)),
-                snoise(densityCoord + vec3(0.0, 0.01, 0.0)) - snoise(densityCoord - vec3(0.0, 0.01, 0.0)),
-                snoise(densityCoord + vec3(0.0, 0.0, 0.01)) - snoise(densityCoord - vec3(0.0, 0.0, 0.01))
-            );
+            // Approximate gradient with offset samples (2 calls instead of 6)
+            float dRight = snoise(densityCoord + vec3(0.02, 0.0, 0.0));
+            float dUp    = snoise(densityCoord + vec3(0.0, 0.02, 0.0));
+            float dHere  = snoise(densityCoord);
+            vec3 densityGrad = vec3(dRight - dHere, dUp - dHere, dHere * 0.5) * 25.0;
             starFormForce = -densityGrad * density * uStarFormationRate * 3.0;
         }
     }
@@ -259,8 +251,8 @@ void main() {
     // warp space, capture nearby particles, and eject
     // matter in relativistic jets along spin axes.
     vec3 blackHoleForce = vec3(0.0);
-    if (uBlackHoleStrength > 0.01) {
-        for (int i = 0; i < 16; i++) {
+    if (uBlackHoleStrength > 0.01 && uNumBlackHoles > 0.0) {
+        for (int i = 0; i < 8; i++) {
             if (float(i) >= uNumBlackHoles) break;
             float fi = float(i);
             vec3 bhSeed = hash31(fi * 173.7 + uBlackHoleSeed);
@@ -318,7 +310,7 @@ void main() {
     if (uQuantumBridgeStrength > 0.01) {
         // Create bridge nodes at noise-determined positions
         vec3 bridgeCoord = position * 0.006 + uTime * 0.015;
-        float bridgeDensity = fbm(bridgeCoord, 3);
+        float bridgeDensity = fbm(bridgeCoord, 2);
 
         // Particles in moderately dense regions feel bridge pull
         if (bridgeDensity > 0.1) {
@@ -356,8 +348,8 @@ void main() {
     // repel particles in chaotic but beautiful patterns.
     vec3 conglomForce = vec3(0.0);
     if (uConglomerationStrength > 0.01) {
-        // 4-6 major energy conglomerations with irregular shapes
-        for (int i = 0; i < 6; i++) {
+        // 3-4 major energy conglomerations with irregular shapes
+        for (int i = 0; i < 4; i++) {
             float fi = float(i);
             vec3 cSeed = hash31(fi * 337.7 + uGalaxySeed * 0.5);
 
@@ -373,12 +365,12 @@ void main() {
             float cDist = length(toCong);
             vec3 cDir = cDist > 0.01 ? toCong / cDist : vec3(0.0);
 
-            // Irregular shape via multi-octave noise deformation
+            // Irregular shape via noise deformation
             float shapeNoise = fbm(vec3(
                 cDir.x * 3.0 + fi + uTime * 0.08,
                 cDir.y * 3.0 + fi * 2.0 + uTime * 0.06,
                 cDir.z * 3.0 + fi * 3.0 + uTime * 0.07
-            ), 3);
+            ), 2);
             float irregularRadius = 25.0 + shapeNoise * 20.0;
             float cFalloff = smoothstep(irregularRadius * 2.5, 0.0, cDist);
 
@@ -390,12 +382,8 @@ void main() {
 
             // Turbulent internal motion — swirling chaotic energy
             if (cDist < irregularRadius * 1.5) {
-                vec3 chaosCoord = position * 0.04 + vec3(fi * 20.0) + uTime * 0.15;
-                vec3 chaos = vec3(
-                    snoise(chaosCoord),
-                    snoise(chaosCoord + vec3(70.0)),
-                    snoise(chaosCoord + vec3(140.0))
-                ) * cMass * cFalloff * 1.5;
+                float chaosVal = snoise(position * 0.04 + vec3(fi * 20.0) + uTime * 0.15);
+                vec3 chaos = vec3(chaosVal, -chaosVal * 0.8, chaosVal * 0.6) * cMass * cFalloff * 1.5;
                 cPull += chaos;
             }
 
@@ -409,9 +397,9 @@ void main() {
     // collision forces — births from compression, deaths from explosion.
     vec3 collisionForce = vec3(0.0);
     if (uCollisionIntensity > 0.01) {
-        // Local density estimation via noise field
+        // Local density estimation via noise field (single octave)
         vec3 denseCoord = position * 0.025 + uTime * 0.008;
-        float localDensity = fbm(denseCoord, 2);
+        float localDensity = snoise(denseCoord) * 0.5 + 0.25;
         float densityThreshold = 0.3;
 
         if (localDensity > densityThreshold) {
@@ -421,11 +409,7 @@ void main() {
             // Explosive birth: compression triggers outward burst (star birth)
             float birthTrigger = snoise(vec3(pid * 0.005, uTime * 0.5, age * 0.05));
             if (birthTrigger > 0.7 && age < 5.0) {
-                vec3 burstDir = normalize(vec3(
-                    snoise(vec3(pid, uTime * 3.0, 0.0)),
-                    snoise(vec3(0.0, pid, uTime * 3.0)),
-                    snoise(vec3(uTime * 3.0, 0.0, pid))
-                ));
+                vec3 burstDir = normalize(hash31(pid + uTime * 31.7) - 0.5);
                 collisionForce += burstDir * collisionStr * 8.0;
             }
 
@@ -433,22 +417,14 @@ void main() {
             if (age > 20.0 && mass > 1.0) {
                 float deathTrigger = snoise(vec3(pid * 0.003, uTime * 0.4, mass));
                 if (deathTrigger > 0.75) {
-                    vec3 explodeDir = normalize(vec3(
-                        snoise(vec3(pid * 1.1, uTime * 4.0, age)),
-                        snoise(vec3(age, pid * 1.1, uTime * 4.0)),
-                        snoise(vec3(uTime * 4.0, age, pid * 1.1))
-                    ));
+                    vec3 explodeDir = normalize(hash31(pid * 1.1 + uTime * 53.3) - 0.5);
                     collisionForce += explodeDir * collisionStr * 12.0 * mass;
                 }
             }
 
-            // General collision jitter in dense regions
-            vec3 jitterCoord = position * 0.1 + uTime * 0.8;
-            collisionForce += vec3(
-                snoise(jitterCoord),
-                snoise(jitterCoord + vec3(50.0)),
-                snoise(jitterCoord + vec3(100.0))
-            ) * collisionStr * 1.5;
+            // General collision jitter in dense regions (single noise call)
+            float jitterVal = snoise(position * 0.1 + uTime * 0.8);
+            collisionForce += vec3(jitterVal, -jitterVal * 0.7, jitterVal * 0.5) * collisionStr * 1.5;
         }
     }
 

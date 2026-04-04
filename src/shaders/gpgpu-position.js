@@ -63,9 +63,9 @@ void main() {
     // ─── Black hole gravitational time dilation ─────
     // Particles near black holes experience extreme time slowdown
     // and spatial compression, warping their trajectories.
-    if (uBlackHoleStrength > 0.01) {
+    if (uBlackHoleStrength > 0.01 && uNumBlackHoles > 0.0) {
         float bhTimeFactor = 1.0;
-        for (int i = 0; i < 16; i++) {
+        for (int i = 0; i < 8; i++) {
             if (float(i) >= uNumBlackHoles) break;
             float fi = float(i);
             vec3 bhSeed = _hash31(fi * 173.7 + uBlackHoleSeed);

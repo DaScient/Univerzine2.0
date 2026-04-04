@@ -111,7 +111,7 @@ controls.autoRotateSpeed = 0.08;
 // Background star field (static ambient depth cue)
 // ───────────────────────────────────────────────────────
 {
-    const count   = 8000;
+    const count   = isMobile ? 3000 : 6000;
     const starPos = new Float32Array(count * 3);
     const starCol = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
@@ -144,7 +144,7 @@ controls.autoRotateSpeed = 0.08;
 // ───────────────────────────────────────────────────────
 let nebulaPoints;
 {
-    const count = 400;
+    const count = isMobile ? 150 : 300;
     const npos   = new Float32Array(count * 3);
     const ncol   = new Float32Array(count * 3);
     const nsizes = new Float32Array(count);
@@ -362,16 +362,16 @@ scene.add(particles);
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 
-// Adaptive bloom resolution — half res on mobile for perf
-const bloomResScale = isMobile ? 0.5 : 1.0;
+// Adaptive bloom resolution — lower on mobile for perf
+const bloomResScale = isMobile ? 0.35 : 0.75;
 const bloomPass = new UnrealBloomPass(
     new THREE.Vector2(
         window.innerWidth * bloomResScale,
         window.innerHeight * bloomResScale
     ),
-    1.8,    // strength
-    0.8,    // radius
-    0.03,   // threshold
+    1.4,    // strength (reduced from 1.8)
+    0.6,    // radius   (reduced from 0.8)
+    0.05,   // threshold (raised from 0.03)
 );
 composer.addPass(bloomPass);
 
@@ -425,11 +425,14 @@ function applyQualityLevel() {
     if (qualityLevel === 0) {
         // Low: reduce bloom, DPR, disable grain
         renderer.setPixelRatio(1);
-        bloomPass.strength = 0.6;
+        bloomPass.strength = 0.5;
+        bloomPass.radius = 0.3;
         if (grainPass) grainPass.enabled = false;
     } else if (qualityLevel === 1) {
         // Medium
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+        bloomPass.strength = 1.0;
+        bloomPass.radius = 0.5;
         if (grainPass) grainPass.enabled = true;
     }
     // Propagate new pixel ratio
@@ -598,17 +601,17 @@ function animate() {
 
     // Galaxy + star lifecycle + quantum
     velU.uGalaxySeed.value         = bangCtrl.galaxySeed;
-    velU.uNumGalaxies.value        = isMobile ? Math.min(bangCtrl.numGalaxies, 8) : bangCtrl.numGalaxies;
+    velU.uNumGalaxies.value        = isMobile ? Math.min(bangCtrl.numGalaxies, 6) : Math.min(bangCtrl.numGalaxies, 8);
     velU.uSupernovaIntensity.value = bangCtrl.supernovaIntensity;
     velU.uStarFormationRate.value  = bangCtrl.starFormationRate;
     velU.uQuantumJitter.value      = bangCtrl.quantumJitter;
 
     // Black holes
     velU.uBlackHoleStrength.value  = bangCtrl.blackHoleStrength;
-    velU.uNumBlackHoles.value      = isMobile ? Math.min(bangCtrl.numBlackHoles, 8) : bangCtrl.numBlackHoles;
+    velU.uNumBlackHoles.value      = isMobile ? Math.min(bangCtrl.numBlackHoles, 4) : Math.min(bangCtrl.numBlackHoles, 8);
     velU.uBlackHoleSeed.value      = bangCtrl.blackHoleSeed;
     posU.uBlackHoleStrength.value  = bangCtrl.blackHoleStrength;
-    posU.uNumBlackHoles.value      = isMobile ? Math.min(bangCtrl.numBlackHoles, 8) : bangCtrl.numBlackHoles;
+    posU.uNumBlackHoles.value      = isMobile ? Math.min(bangCtrl.numBlackHoles, 4) : Math.min(bangCtrl.numBlackHoles, 8);
     posU.uBlackHoleSeed.value      = bangCtrl.blackHoleSeed;
 
     // Quantum bridges
@@ -631,7 +634,8 @@ function animate() {
     velU.uMouseActive.value   = mouseField.active ? 1.0 : 0.0;
 
     // AR Camera Flow → GPU (surface-reactive particle forces)
-    if (cameraAR.active && cameraAR.video) {
+    // Throttle to every 2nd frame to reduce CPU load
+    if (cameraAR.active && cameraAR.video && (fpsFrames & 1) === 0) {
         cameraFlow.update(cameraAR.video);
     }
     const arOn = cameraAR.active && cameraFlow.active ? 1.0 : 0.0;
@@ -691,7 +695,12 @@ function animate() {
     }
 
     // ─── GPGPU compute step ───
-    if (bangCtrl.started) gpuCompute.compute();
+    // On very low quality, skip every other compute frame to save GPU
+    if (bangCtrl.started) {
+        if (qualityLevel > 0 || (fpsFrames & 1) === 0) {
+            gpuCompute.compute();
+        }
+    }
 
     // Push GPGPU output into particle material
     const posTex = gpuCompute.getCurrentRenderTarget(positionVariable).texture;

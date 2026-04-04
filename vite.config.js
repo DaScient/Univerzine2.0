@@ -8,7 +8,9 @@ export default defineConfig({
     minify: 'esbuild',        // fast, built-in minifier
     rollupOptions: {
       output: {
-        manualChunks: undefined,  // single bundle — fewer requests
+        manualChunks: {
+          three: ['three'],  // separate vendor chunk — better caching on repeat visits
+        },
       },
     },
     assetsInlineLimit: 8192,    // inline small assets as data URIs
